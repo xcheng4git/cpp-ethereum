@@ -14,24 +14,19 @@
 	You should have received a copy of the GNU General Public License
 	along with cpp-ethereum.  If not, see <http://www.gnu.org/licenses/>.
 */
-/** @file ethash.cpp
+/** @file
  * Ethash class testing.
  */
 
-#include <boost/test/unit_test.hpp>
-#include <test/tools/libtesteth/TestOutputHelper.h>
-#include <libethash/internal.h>
 #include <libethashseal/Ethash.h>
+#include <libethash/internal.h>
 
-using namespace std;
+#include <boost/test/unit_test.hpp>
+
 using namespace dev;
 using namespace dev::eth;
-using namespace dev::test;
 
-BOOST_FIXTURE_TEST_SUITE(EthashTests, TestOutputHelperFixture)
-
-// FIXME: Add a helper function here, because the test cases are almost identical.
-// TODO: Add tests for Homestead difficulty change.
+BOOST_AUTO_TEST_SUITE(EthashTests)
 
 BOOST_AUTO_TEST_CASE(calculateDifficultyByzantiumWithoutUncles)
 {
