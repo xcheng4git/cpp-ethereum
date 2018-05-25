@@ -19,6 +19,9 @@
  * @date 2015
  */
 
+#include "State.h"
+#include "Account.h"
+#include "GenesisInfo.h"
 #include "ChainParams.h"
 #include <json_spirit/JsonSpiritHeaders.h>
 #include <libdevcore/Log.h>
@@ -27,9 +30,6 @@
 #include <libethcore/SealEngine.h>
 #include <libethcore/BlockHeader.h>
 #include <libethcore/Precompiled.h>
-#include "GenesisInfo.h"
-#include "State.h"
-#include "Account.h"
 using namespace std;
 using namespace dev;
 using namespace eth;
@@ -90,6 +90,49 @@ set<string> const c_knownParamNames = {c_minGasLimit, c_maxGasLimit, c_gasLimitB
     c_durationLimit, c_chainID, c_networkID, c_allowFutureBlocks};
 } // anonymous namespace
 
+void validateConfigJson(js::mObject const& _obj)
+{
+    requireJsonFields(_obj, "ChainParams::loadConfig", {
+        {"sealEngine", {json_spirit::str_type} },
+        {"params", {json_spirit::obj_type} },
+        {"genesis", {json_spirit::obj_type} },
+        {"accounts", {json_spirit::obj_type} }
+    });
+
+    requireJsonFields(_obj.at("genesis").get_obj(), "ChainParams::loadConfig", {
+        {"author", {json_spirit::str_type} },
+        {"nonce", {json_spirit::str_type} },
+        {"author", {json_spirit::str_type} },
+        {"gasLimit", {json_spirit::str_type} },
+        {"timestamp", {json_spirit::str_type} },
+        {"difficulty", {json_spirit::str_type} },
+        {"extraData", {json_spirit::str_type} }
+        }, {"mixHash", "parentHash" });
+
+    js::mObject const& accounts = _obj.at("accounts").get_obj();
+    for (auto const& acc: accounts)
+    {
+        js::mObject const& account = acc.second.get_obj();
+        if (account.count("precompiled"))
+        {
+            requireJsonFields(account, "ChainParams::loadConfig", {
+                {"precompiled", {json_spirit::obj_type} }},
+                {"wei"}
+            );
+        }
+        else
+        {
+             if (account.count("wei"))
+                 requireJsonFields(account, "ChainParams::loadConfig", {{"wei", {json_spirit::str_type}}});
+             else
+             {
+                 requireJsonFields(account, "ChainParams::loadConfig",
+                     {{"balance", {json_spirit::str_type}}}, {"code", "nonce", "storage"});
+             }
+        }
+    }
+}
+
 ChainParams ChainParams::loadConfig(
     string const& _json, h256 const& _stateRoot, const boost::filesystem::path& _configPath) const
 {
@@ -98,16 +141,23 @@ ChainParams ChainParams::loadConfig(
 	json_spirit::read_string_or_throw(_json, val);
 	js::mObject obj = val.get_obj();
 
-	validateFieldNames(obj, c_knownChainConfigFields);
+    validateConfigJson(obj);
+    //validateFieldNames(obj, c_knownChainConfigFields);
 
-	cp.sealEngineName = obj[c_sealEngine].get_str();
-	// params
-	js::mObject params = obj[c_params].get_obj();
-	validateFieldNames(params, c_knownParamNames);
-	cp.accountStartNonce = u256(fromBigEndian<u256>(fromHex(params[c_accountStartNonce].get_str())));
-	cp.maximumExtraDataSize = u256(fromBigEndian<u256>(fromHex(params[c_maximumExtraDataSize].get_str())));
+    // params
+    cp.sealEngineName = obj[c_sealEngine].get_str();
+    js::mObject params = obj[c_params].get_obj();
+    //validateFieldNames(params, c_knownParamNames);
+
+    // Params that are not required and could be set to default value
+    if (params.count(c_accountStartNonce))
+        cp.accountStartNonce = u256(fromBigEndian<u256>(fromHex(params[c_accountStartNonce].get_str())));
+    if (params.count(c_maximumExtraDataSize)) //!!! this option does not affect actul extra data size check for some reason !!!
+        cp.maximumExtraDataSize = u256(fromBigEndian<u256>(fromHex(params[c_maximumExtraDataSize].get_str())));
+
 	cp.tieBreakingGas = params.count(c_tieBreakingGas) ? params[c_tieBreakingGas].get_bool() : true;
-	cp.setBlockReward(u256(fromBigEndian<u256>(fromHex(params[c_blockReward].get_str()))));
+    if (params.count(c_blockReward))
+        cp.setBlockReward(u256(fromBigEndian<u256>(fromHex(params[c_blockReward].get_str()))));
 
 	auto setOptionalU256Parameter = [&params](u256 &_destination, string const& _name)
 	{
@@ -174,9 +224,10 @@ ChainParams ChainParams::loadGenesis(string const& _json, h256 const& _stateRoot
 	json_spirit::read_string(_json, val);
 	js::mObject genesis = val.get_obj();
 
-	validateFieldNames(genesis, c_knownGenesisFields);
+    //validateFieldNames(genesis, c_knownGenesisFields);
 
-	cp.parentHash = h256(genesis[c_parentHash].get_str());
+    if (genesis.count(c_parentHash))
+        cp.parentHash = h256(genesis[c_parentHash].get_str());
 	cp.author = genesis.count(c_coinbase) ? h160(genesis[c_coinbase].get_str()) : h160(genesis[c_author].get_str());
 	cp.difficulty = genesis.count(c_difficulty) ? u256(fromBigEndian<u256>(fromHex(genesis[c_difficulty].get_str()))) : 0;
 	cp.gasLimit = u256(fromBigEndian<u256>(fromHex(genesis[c_gasLimit].get_str())));

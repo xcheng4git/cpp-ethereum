@@ -37,8 +37,7 @@ void TestOutputHelper::initTest(size_t _maxTests)
 	BasicAuthority::init();
 	m_currentTestName = "n/a";
 	m_currentTestFileName = string();
-	m_execTimeResults = std::vector<execTimeName>();
-	m_timer = Timer();
+    m_timer = Timer();
 	m_timer.restart();
 	m_currentTestCaseName = boost::unit_test::framework::current_test_case().p_name;
 	if (!Options::get().createRandomTest)
@@ -86,8 +85,12 @@ void TestOutputHelper::printTestExecStats()
 {
 	if (Options::get().exectimelog)
 	{
+        int totalTime = 0;
 		std::cout << std::left;
 		std::sort(m_execTimeResults.begin(), m_execTimeResults.end(), [](execTimeName _a, execTimeName _b) { return (_b.first < _a.first); });
+        for (size_t i = 0; i < m_execTimeResults.size(); i++)
+            totalTime += m_execTimeResults[i].first;
+        std::cout << setw(45) << "Total Time: " << setw(25) << "     : " + toString(totalTime) << "\n";
 		for (size_t i = 0; i < m_execTimeResults.size(); i++)
 			std::cout << setw(45) << m_execTimeResults[i].second << setw(25) << " time: " + toString(m_execTimeResults[i].first) << "\n";
 	}

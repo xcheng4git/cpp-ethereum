@@ -21,6 +21,7 @@
  */
 
 #include "Test.h"
+#include <thread>
 #include <jsonrpccpp/common/errors.h>
 #include <jsonrpccpp/common/exception.h>
 #include <libdevcore/CommonJS.h>
@@ -85,13 +86,13 @@ bool Test::test_setChainParams(Json::Value const& param1)
         std::string output = fastWriter.write(param1);
         asClientTest(m_eth).setChainParams(output);
         asClientTest(m_eth).completeSync();  // set sync state to idle for mining
+        return true;
     }
-    catch (std::exception const&)
+    catch (std::exception const& ex)
     {
-        BOOST_THROW_EXCEPTION(JsonRpcException(Errors::ERROR_RPC_INTERNAL_ERROR));
+        cwarn << ex.what();
+        throw JsonRpcException(Errors::ERROR_RPC_INTERNAL_ERROR);
     }
-
-    return true;
 }
 
 bool Test::test_mineBlocks(int _number)
@@ -145,6 +146,28 @@ bool Test::test_rewindToBlock(int _number)
     catch (std::exception const&)
     {
         BOOST_THROW_EXCEPTION(JsonRpcException(Errors::ERROR_RPC_INTERNAL_ERROR));
+    }
+    return true;
+}
+
+bool Test::test_importRawBlock(string const& _blockRLP)
+{
+    try
+    {
+        ClientTest& client = asClientTest(m_eth);
+        client.queueBlock(jsToBytes(_blockRLP, OnFailed::Throw), true);
+
+        bool moreToImport = true;
+        while (moreToImport)
+        {
+            tie(ignore, moreToImport, ignore) = client.syncQueue(100000);
+            this_thread::sleep_for(chrono::milliseconds(100));
+        }
+    }
+    catch (std::exception const& ex)
+    {
+        cwarn << ex.what();
+        throw JsonRpcException(Errors::ERROR_RPC_INTERNAL_ERROR);
     }
     return true;
 }

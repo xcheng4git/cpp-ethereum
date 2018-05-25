@@ -76,7 +76,7 @@ struct ChainOperationParams
 
 	/// General chain params.
 private:
-	u256 m_blockReward;
+    u256 m_blockReward = 5000000000000000000;
 public:
 	EVMSchedule const& scheduleForBlockNumber(u256 const& _blockNumber) const;
 	u256 blockReward(EVMSchedule const& _schedule) const;

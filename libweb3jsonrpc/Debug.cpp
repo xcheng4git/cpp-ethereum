@@ -138,15 +138,19 @@ Json::Value Debug::debug_accountRangeAt(
 
     try
     {
-        Block block = m_eth.block(blockHash(_blockHashOrNumber));
-        size_t const i = std::min(static_cast<size_t>(_txIndex), block.pending().size());
+        Block block(0);
         State state(State::Null);
-        createIntermediateState(state, block, i, m_eth.blockChain());
-       
-        auto const addressMap = state.addresses(h256(_addressHash), _maxResults);
+        if (isHash<h256>(_blockHashOrNumber))
+            block = m_eth.block(blockHash(_blockHashOrNumber));
+        else
+            block = m_eth.ClientBase::block(jsToBlockNumber(_blockHashOrNumber));
 
+        size_t const i = std::min(static_cast<size_t>(_txIndex), block.pending().size());
+        createIntermediateState(state, block, i, m_eth.blockChain());
+
+        auto const addressMap = state.addresses(h256(_addressHash), _maxResults);
         Json::Value addressList(Json::objectValue);
-        for (auto const& record : addressMap.first)
+        for (auto const& record: addressMap.first)
             addressList[toString(record.first)] = toString(record.second);
 
         ret["addressMap"] = addressList;
@@ -161,6 +165,7 @@ Json::Value Debug::debug_accountRangeAt(
     return ret;
 }
 
+
 Json::Value Debug::debug_storageRangeAt(string const& _blockHashOrNumber, int _txIndex, string const& _address, string const& _begin, int _maxResults)
 {
 	Json::Value ret(Json::objectValue);
@@ -174,11 +179,14 @@ Json::Value Debug::debug_storageRangeAt(string const& _blockHashOrNumber, int _t
 
 	try
 	{
-		Block block = m_eth.block(blockHash(_blockHashOrNumber));
-
-		unsigned const i = ((unsigned)_txIndex < block.pending().size()) ? (unsigned)_txIndex : block.pending().size();
-		State state(State::Null);
-		createIntermediateState(state, block, i, m_eth.blockChain());
+        Block block(0);
+        State state(State::Null);
+        if (isHash<h256>(_blockHashOrNumber))
+            block = m_eth.block(blockHash(_blockHashOrNumber));
+        else
+            block = m_eth.ClientBase::block(jsToBlockNumber(_blockHashOrNumber));
+        size_t const i = std::min(static_cast<size_t>(_txIndex), block.pending().size());
+        createIntermediateState(state, block, i, m_eth.blockChain());
 
 		map<h256, pair<u256, u256>> const storage(state.storage(Address(_address)));
 

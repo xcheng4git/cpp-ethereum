@@ -730,6 +730,8 @@ std::ostream& dev::eth::operator<<(std::ostream& _out, State const& _s)
 State& dev::eth::createIntermediateState(State& o_s, Block const& _block, unsigned _txIndex, BlockChain const& _bc)
 {
     o_s = _block.state();
+    if (_txIndex >= _block.pending().size())
+        return o_s;
     u256 const rootHash = _block.stateRootBeforeTx(_txIndex);
     if (rootHash)
         o_s.setRoot(rootHash);

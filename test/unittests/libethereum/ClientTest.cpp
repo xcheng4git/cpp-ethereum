@@ -78,7 +78,8 @@ static std::string const c_configString = R"(
         "timestamp": "0x00",
         "parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
         "extraData": "0x",
-        "gasLimit": "0x1000000000000"
+        "gasLimit": "0x1000000000000",
+        "difficulty": "0x020000"
     },
     "accounts": {
         "0000000000000000000000000000000000000001": { "wei": "1", "precompiled": { "name": "ecrecover", "linear": { "base": 3000, "word": 0 } } },
