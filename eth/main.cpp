@@ -88,7 +88,7 @@ string ethCredits(bool _interactive = false)
 
 void version()
 {
-    const auto* buildinfo = eth_get_buildinfo();
+    auto const* const buildinfo = eth_get_buildinfo();
     cout << "eth " << buildinfo->project_version << "\n";
     cout << "eth network protocol version: " << dev::eth::c_protocolVersion << "\n";
     cout << "Client database version: " << dev::eth::c_databaseVersion << "\n";

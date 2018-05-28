@@ -58,7 +58,7 @@ int64_t maxBlockGasLimit()
 
 void version()
 {
-    const auto* buildinfo = eth_get_buildinfo();
+    auto const* const buildinfo = eth_get_buildinfo();
     cout << "ethvm " << buildinfo->project_version << "\n";
     cout << "Build: " << buildinfo->system_name << "/" << buildinfo->build_type << "\n";
     exit(0);
