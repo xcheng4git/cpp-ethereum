@@ -82,14 +82,13 @@ public:
 	/// Construct an alive Account, with given endowment, for either a normal (non-contract) account or for a
 	/// contract account in the
 	/// conception phase, where the code is not yet known.
-	Account(u256 _nonce, u256 _balance, Changedness _c = Changed): m_isAlive(true), m_isUnchanged(_c == Unchanged), m_nonce(_nonce), m_balance(_balance) {}
+	Account(u256 _nonce, u256 _nonce4Evidence, u256 _balance, Changedness _c = Changed) : m_isAlive(true), m_isUnchanged(_c == Unchanged), m_nonce(_nonce), m_nonce4Evidence(_nonce4Evidence), m_balance(_balance) {}
 
 	/// Explicit constructor for wierd cases of construction or a contract account.
-	Account(u256 _nonce, u256 _balance, h256 _contractRoot, h256 _codeHash, Changedness _c): m_isAlive(true), m_isUnchanged(_c == Unchanged), m_nonce(_nonce), m_balance(_balance), m_storageRoot(_contractRoot), m_codeHash(_codeHash) { assert(_contractRoot); }
-
+	Account(u256 _nonce, u256 _nonce4Evidence, u256 _balance, h256 _contractRoot, h256 _codeHash, Changedness _c) : m_isAlive(true), m_isUnchanged(_c == Unchanged), m_nonce(_nonce), m_nonce4Evidence(_nonce4Evidence), m_balance(_balance), m_storageRoot(_contractRoot), m_codeHash(_codeHash) { assert(_contractRoot); }
 
 	/// Kill this account. Useful for the suicide opcode. Following this call, isAlive() returns false.
-	void kill() { m_isAlive = false; m_storageOverlay.clear(); m_codeHash = EmptySHA3; m_storageRoot = EmptyTrie; m_balance = 0; m_nonce = 0; changed(); }
+	void kill() { m_isAlive = false; m_storageOverlay.clear(); m_codeHash = EmptySHA3; m_storageRoot = EmptyTrie; m_balance = 0; m_nonce = 0; m_nonce4Evidence = 0;  changed(); }
 
 	/// @returns true iff this object represents an account in the state. Returns false if this object
 	/// represents an account that should no longer exist in the trie (an account that never existed or was
@@ -103,7 +102,7 @@ public:
 
 	/// @returns true if the nonce, balance and code is zero / empty. Code is considered empty
 	/// during creation phase.
-	bool isEmpty() const { return nonce() == 0 && balance() == 0 && codeHash() == EmptySHA3; }
+	bool isEmpty() const { return nonce() == 0 && nonce4Evidence() == 0 && balance() == 0 && codeHash() == EmptySHA3; }
 
 	/// @returns the balance of this account.
 	u256 const& balance() const { return m_balance; }
@@ -113,14 +112,16 @@ public:
 
 	/// @returns the nonce of the account.
 	u256 nonce() const { return m_nonce; }
+	u256 nonce4Evidence() const { return m_nonce4Evidence; }
 
 	/// Increment the nonce of the account by one.
 	void incNonce() { ++m_nonce; changed(); }
+	void incNonce4Evidence() { ++m_nonce4Evidence; changed(); }
 
 	/// Set nonce to a new value. This is used when reverting changes made to
 	/// the account.
 	void setNonce(u256 const& _nonce) { m_nonce = _nonce; changed(); }
-
+	void setNonce4Evidence(u256 const& _nonce) { m_nonce4Evidence = _nonce; changed(); }
 
 	/// @returns the root of the trie (whose nodes are stored in the state db externally to this class)
 	/// which encodes the base-state of the account's storage (upon which the storage is overlaid).
@@ -176,6 +177,8 @@ private:
 
 	/// Account's nonce.
 	u256 m_nonce;
+	/// Account's nonce for evidence.
+	u256 m_nonce4Evidence;
 
 	/// Account's balance.
 	u256 m_balance = 0;
@@ -206,9 +209,10 @@ private:
 class AccountMask
 {
 public:
-	AccountMask(bool _all = false):
+	AccountMask(bool _all = false) :
 		m_hasBalance(_all),
 		m_hasNonce(_all),
+		m_hasNonce4Evidence(_all),
 		m_hasCode(_all),
 		m_hasStorage(_all)
 	{}
@@ -216,12 +220,14 @@ public:
 	AccountMask(
 		bool _hasBalance,
 		bool _hasNonce,
+		bool _hasNonce4Evidence,
 		bool _hasCode,
 		bool _hasStorage,
 		bool _shouldNotExist = false
-	):
+	) :
 		m_hasBalance(_hasBalance),
 		m_hasNonce(_hasNonce),
+		m_hasNonce4Evidence(_hasNonce4Evidence),
 		m_hasCode(_hasCode),
 		m_hasStorage(_hasStorage),
 		m_shouldNotExist(_shouldNotExist)
@@ -230,6 +236,7 @@ public:
 	bool allSet() const { return m_hasBalance && m_hasNonce && m_hasCode && m_hasStorage; }
 	bool hasBalance() const { return m_hasBalance; }
 	bool hasNonce() const { return m_hasNonce; }
+	bool hasNonce4Evidence() const { return m_hasNonce4Evidence; }
 	bool hasCode() const { return m_hasCode; }
 	bool hasStorage() const { return m_hasStorage; }
 	bool shouldExist() const { return !m_shouldNotExist; }
@@ -237,6 +244,7 @@ public:
 private:
 	bool m_hasBalance;
 	bool m_hasNonce;
+	bool m_hasNonce4Evidence;
 	bool m_hasCode;
 	bool m_hasStorage;
 	bool m_shouldNotExist = false;

@@ -89,6 +89,7 @@ namespace
 	string const c_finney = "finney";
 	string const c_balance = "balance";
 	string const c_nonce = "nonce";
+	string const c_nonce4Evidence = "nonce4Evidence";
 	string const c_code = "code";
 	string const c_codeFromFile = "codeFromFile";  ///< A file containg a code as bytes.
 	string const c_storage = "storage";
@@ -128,11 +129,12 @@ AccountMap dev::eth::jsonToAccountMap(std::string const& _json, u256 const& _def
 
 		bool haveBalance = (o.count(c_wei) || o.count(c_finney) || o.count(c_balance));
 		bool haveNonce = o.count(c_nonce);
+		bool haveNonce4Evidence = o.count(c_nonce4Evidence);
 		bool haveCode = o.count(c_code) || o.count(c_codeFromFile);
 		bool haveStorage = o.count(c_storage);
 		bool shouldNotExists = o.count(c_shouldnotexist);
 
-		if (haveStorage || haveCode || haveNonce || haveBalance)
+		if (haveStorage || haveCode || haveNonce || haveNonce4Evidence || haveBalance)
 		{
 			u256 balance = 0;
 			if (o.count(c_wei))
@@ -143,8 +145,9 @@ AccountMap dev::eth::jsonToAccountMap(std::string const& _json, u256 const& _def
 				balance = u256Safe(o[c_balance].get_str());
 
 			u256 nonce = haveNonce ? u256Safe(o[c_nonce].get_str()) : _defaultNonce;
+			u256 nonce4Evidence = haveNonce4Evidence ? u256Safe(o[c_nonce4Evidence].get_str()) : _defaultNonce;
 
-            ret[a] = Account(nonce, balance);
+            ret[a] = Account(nonce, nonce4Evidence, balance);
             auto codeIt = o.find(c_code);
             if (codeIt != o.end())
             {
@@ -193,7 +196,7 @@ AccountMap dev::eth::jsonToAccountMap(std::string const& _json, u256 const& _def
 		{
 			(*o_mask)[a] = AccountMask(haveBalance, haveNonce, haveCode, haveStorage, shouldNotExists);
 			if (!haveStorage && !haveCode && !haveNonce && !haveBalance && shouldNotExists) //defined only shouldNotExists field
-				ret[a] = Account(0, 0);
+				ret[a] = Account(0, 0, 0);
 		}
 
 		if (o_precompiled && o.count(c_precompiled))

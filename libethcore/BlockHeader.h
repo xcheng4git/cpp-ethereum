@@ -71,6 +71,13 @@ enum BlockDataType
     BlockData
 };
 
+enum BlockType
+{
+	TransactionBlock = 0,
+	EvidenceBlock,
+	FrozenEvidenceBlock
+};
+
 DEV_SIMPLE_EXCEPTION(NoHashRecorded);
 DEV_SIMPLE_EXCEPTION(GenesisBlockCannotBeCalculated);
 
@@ -98,7 +105,7 @@ class BlockHeader
 {
     friend class BlockChain;
 public:
-    static const unsigned BasicFields = 13;
+    static const unsigned BasicFields = 14;
 
     BlockHeader();
     explicit BlockHeader(bytesConstRef _data, BlockDataType _bdt = BlockData, h256 const& _hashWith = h256());
@@ -126,7 +133,9 @@ public:
             m_gasLimit == _cmp.gasLimit() &&
             m_gasUsed == _cmp.gasUsed() &&
             m_timestamp == _cmp.timestamp() &&
-            m_extraData == _cmp.extraData();
+			m_extraData == _cmp.extraData() &&
+			m_blockType == _cmp.m_blockType;
+
     }
     bool operator!=(BlockHeader const& _cmp) const { return !operator==(_cmp); }
 
@@ -149,6 +158,7 @@ public:
     void setGasUsed(u256 const& _v) { m_gasUsed = _v; noteDirty(); }
     void setNumber(int64_t _v) { m_number = _v; noteDirty(); }
     void setGasLimit(u256 const& _v) { m_gasLimit = _v; noteDirty(); }
+	void setBlockType(BlockType const& _t) { m_blockType = _t; noteDirty(); }
     void setExtraData(bytes const& _v) { m_extraData = _v; noteDirty(); }
     void setLogBloom(LogBloom const& _v) { m_logBloom = _v; noteDirty(); }
     void setDifficulty(u256 const& _v) { m_difficulty = _v; noteDirty(); }
@@ -166,6 +176,7 @@ public:
     u256 const& gasUsed() const { return m_gasUsed; }
     int64_t number() const { return m_number; }
     u256 const& gasLimit() const { return m_gasLimit; }
+	BlockType const& blockType() const { return m_blockType; }
     bytes const& extraData() const { return m_extraData; }
     LogBloom const& logBloom() const { return m_logBloom; }
     u256 const& difficulty() const { return m_difficulty; }
@@ -199,6 +210,8 @@ private:
     int64_t m_number = 0;
     u256 m_gasLimit;
     u256 m_gasUsed;
+	BlockType m_blockType;
+    
     bytes m_extraData;
     int64_t m_timestamp = -1;
 
@@ -217,9 +230,9 @@ private:
 
 inline std::ostream& operator<<(std::ostream& _out, BlockHeader const& _bi)
 {
-    _out << _bi.hash(WithoutSeal) << " " << _bi.parentHash() << " " << _bi.sha3Uncles() << " " << _bi.author() << " " << _bi.stateRoot() << " " << _bi.transactionsRoot() << " " <<
-            _bi.receiptsRoot() << " " << _bi.logBloom() << " " << _bi.difficulty() << " " << _bi.number() << " " << _bi.gasLimit() << " " <<
-            _bi.gasUsed() << " " << _bi.timestamp();
+	_out << _bi.hash(WithoutSeal) << " " << _bi.parentHash() << " " << _bi.sha3Uncles() << " " << _bi.author() << " " << _bi.stateRoot() << "(srt) " << _bi.transactionsRoot() << "(trt) " <<
+			_bi.receiptsRoot() << "(rrt) " << _bi.logBloom() << " " << _bi.difficulty() << " " << _bi.number() << " " << _bi.gasLimit() << " " <<
+			_bi.gasUsed() << " " << _bi.blockType() << "(btp) "<< _bi.timestamp();
     return _out;
 }
 

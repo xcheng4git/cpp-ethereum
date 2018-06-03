@@ -51,7 +51,8 @@ enum class TransactionException
 	StackUnderflow,
 	RevertInstruction,
 	InvalidZeroSignatureFormat,
-	AddressAlreadyUsed
+	AddressAlreadyUsed,
+	NotContractAddress
 };
 
 enum class CodeDeposit
@@ -116,6 +117,9 @@ public:
 
 	/// Constructs a transaction from the given RLP.
 	explicit Transaction(bytes const& _rlp, CheckTransaction _checkSig): Transaction(&_rlp, _checkSig) {}
+
+	boost::optional<SignatureStruct> const& updateSignature(Secret const& _priv);
+	
 };
 
 /// Nice name for vector of Transaction.

@@ -32,6 +32,7 @@
 #include <chrono>
 #include <memory>
 #include <thread>
+#include <random>
 
 using namespace std;
 using namespace dev;
@@ -72,14 +73,17 @@ std::ostream& dev::eth::operator<<(std::ostream& _out, ActivityReport const& _r)
 
 Client::Client(ChainParams const& _params, int _networkID, p2p::Host* _host,
     std::shared_ptr<GasPricer> _gpForAdoption, fs::path const& _dbPath,
-    fs::path const& _snapshotPath, WithExisting _forceAction, TransactionQueue::Limits const& _l)
+    fs::path const& _snapshotPath, WithExisting _forceAction, TransactionQueue::Limits const& _l, TransactionQueue::Limits const& _le)
   : ClientBase(),
     Worker("eth", 0),
+    m_sealType(ClientSealType::FREE),
+    m_sealTypeThreshold(0.5),
     m_bc(_params, _dbPath, _forceAction,
         [](unsigned d, unsigned t) {
             std::cerr << "REVISING BLOCKCHAIN: Processed " << d << " of " << t << "...\r";
         }),
     m_tq(_l),
+    m_eq(_le),
     m_gp(_gpForAdoption ? _gpForAdoption : make_shared<TrivialGasPricer>()),
     m_preSeal(chainParams().accountStartNonce),
     m_postSeal(chainParams().accountStartNonce),
@@ -114,6 +118,11 @@ void Client::init(p2p::Host* _extNet, fs::path const& _dbPath, fs::path const& _
         this->onTransactionQueueReady();
     });  // TODO: should read m_tq->onReady(thisThread, syncTransactionQueue);
     m_tqReplaced = m_tq.onReplaced([=](h256 const&) { m_needStateReset = true; });
+	m_eqReady = m_eq.onReady([=]() {
+		this->onTransactionQueueReady();
+	});  // TODO: should read m_tq->onReady(thisThread, syncTransactionQueue);
+	m_eqReplaced = m_eq.onReplaced([=](h256 const&) { m_needStateReset = true; });
+    
     m_bqReady = m_bq.onReady([=]() {
         this->onBlockQueueReady();
     });  // TODO: should read m_bq->onReady(thisThread, syncBlockQueue);
@@ -276,7 +285,7 @@ void Client::reopenChain(ChainParams const& _p, WithExisting _we)
         stopSealing();
     stopWorking();
 
-    m_tq.clear();
+    m_tq.clear(); m_eq.clear();
     m_bq.clear();
     sealEngine()->cancelGeneration();
 
@@ -323,7 +332,7 @@ void Client::clearPending()
     {
         if (!m_postSeal.pending().size())
             return;
-        m_tq.clear();
+        m_tq.clear(); m_eq.clear();
         DEV_READ_GUARDED(x_preSeal)
             m_postSeal = m_preSeal;
     }
@@ -425,15 +434,24 @@ void Client::syncTransactionQueue()
             return;
         }
 
-        tie(newPendingReceipts, m_syncTransactionQueue) = m_working.sync(bc(), m_tq, *m_gp);
+		if ( m_sealType == ClientSealType::TRANSACTION)
+			tie(newPendingReceipts, m_syncTransactionQueue) = m_working.sync(bc(), m_tq, *m_gp);
+		else if ( m_sealType == ClientSealType::EVIDENCE)
+			tie(newPendingReceipts, m_syncTransactionQueue) = m_working.syncEvidence(bc(), m_eq, *m_gp);
     }
 
-    if (newPendingReceipts.empty())
-    {
-        auto s = m_tq.status();
-        ctrace << "No transactions to process. " << m_working.pending().size() << " pending, " << s.current << " queued, " << s.future << " future, " << s.unverified << " unverified";
-        return;
-    }
+	if (newPendingReceipts.empty()) {
+		if (m_sealType == ClientSealType::TRANSACTION) {
+			auto s = m_tq.status();
+			ctrace << "No transactions to process. " << m_working.pending().size() << " pending transactions, " << s.current << " queued, " << s.future << " future, " << s.unverified << " unverified";
+		}
+		if (m_sealType == ClientSealType::EVIDENCE) {
+			auto s = m_eq.status();
+			ctrace << "No evidences to process. " << m_working.pending().size() << " pending evidences, " << s.current << " queued, " << s.future << " future, " << s.unverified << " unverified";
+		}
+		return;
+	}
+
 
     DEV_READ_GUARDED(x_working)
         DEV_WRITE_GUARDED(x_postSeal)
@@ -453,7 +471,8 @@ void Client::syncTransactionQueue()
     if (auto h = m_host.lock())
         h->noteNewTransactions();
 
-    ctrace << "Processed " << newPendingReceipts.size() << " transactions in" << (timer.elapsed() * 1000) << "(" << (bool)m_syncTransactionQueue << ")";
+	ctrace << "Processed " << newPendingReceipts.size() << (m_sealType==ClientSealType::TRANSACTION?" transactions":" evidences") << " in" << (timer.elapsed() * 1000) << "(" << (bool)m_syncTransactionQueue << ")";
+    
 }
 
 void Client::onDeadBlocks(h256s const& _blocks, h256Hash& io_changed)
@@ -467,7 +486,11 @@ void Client::onDeadBlocks(h256s const& _blocks, h256Hash& io_changed)
             LOG(m_loggerDetail) << "Resubmitting dead-block transaction "
                                 << Transaction(t, CheckTransaction::None);
             ctrace << "Resubmitting dead-block transaction " << Transaction(t, CheckTransaction::None);
-            m_tq.import(t, IfDropped::Retry);
+			if (Transaction(t, CheckTransaction::None).isEvidence())
+				m_eq.import(t, IfDropped::Retry);
+			else
+				m_tq.import(t, IfDropped::Retry);
+
         }
     }
 
@@ -516,9 +539,16 @@ void Client::resyncStateFromChain()
                 {
                     LOG(m_loggerDetail) << "Resubmitting post-seal transaction " << t;
                     //                      ctrace << "Resubmitting post-seal transaction " << t;
-                    auto ir = m_tq.import(t, IfDropped::Retry);
-                    if (ir != ImportResult::Success)
-                        onTransactionQueueReady();
+					if (t.isEvidence()) {
+						auto ir = m_eq.import(t, IfDropped::Retry);
+						if (ir != ImportResult::Success)
+							onTransactionQueueReady();
+					}
+					else {
+						auto ir = m_tq.import(t, IfDropped::Retry);
+						if (ir != ImportResult::Success)
+							onTransactionQueueReady();
+					}
                 }
         DEV_READ_GUARDED(x_working) DEV_WRITE_GUARDED(x_postSeal)
             m_postSeal = m_working;
@@ -551,11 +581,22 @@ void Client::onChainChanged(ImportRoute const& _ir)
 //  ctrace << "onChainChanged()";
     h256Hash changeds;
     onDeadBlocks(_ir.deadBlocks, changeds);
-    for (auto const& t: _ir.goodTranactions)
-    {
-        LOG(m_loggerDetail) << "Safely dropping transaction " << t.sha3();
-        m_tq.dropGood(t);
-    }
+	if (m_sealType == ClientSealType::TRANSACTION) {
+		for (auto const& t : _ir.goodTranactions)
+		{
+			LOG(m_loggerDetail) << "Safely dropping transaction " << t.sha3();
+			m_tq.dropGood(t);
+		}
+	}
+	else if (m_sealType == ClientSealType::EVIDENCE) {
+		for (auto const& t : _ir.goodTranactions)
+		{
+			LOG(m_loggerDetail) << "Safely dropping evidence " << t.sha3();
+			m_eq.dropGood(t);
+		}
+	}
+	m_sealType = ClientSealType::FREE;
+
     onNewBlocks(_ir.liveBlocks, changeds);
     if (!isMajorSyncing())
         resyncStateFromChain();
@@ -604,7 +645,10 @@ void Client::rejigSealing()
                     LOG(m_logger) << "Tried to seal sealed block...";
                     return;
                 }
-                m_working.commitToSeal(bc(), m_extraData);
+				if (m_sealType == ClientSealType::TRANSACTION)
+					m_working.commitToSeal(bc(), m_extraData);
+				else if (m_sealType == ClientSealType::EVIDENCE)
+					m_working.commitToSealEvidence(bc(), m_extraData);
             }
             DEV_READ_GUARDED(x_working)
             {
@@ -673,6 +717,19 @@ void Client::doWork(bool _doWait)
         resetState();
         m_needStateReset = false;
     }
+
+	if (m_sealType == ClientSealType::FREE) {
+		DEV_WRITE_GUARDED(x_sealing)
+		{
+			srand(time(0));
+			double r = (rand() % 100) / (double)101.0;
+			if (r >= m_sealTypeThreshold)
+				m_sealType = ClientSealType::TRANSACTION;
+			else
+				m_sealType = ClientSealType::EVIDENCE;
+		}
+		cnote << "### client is in sealing state: " << (m_sealType == ClientSealType::TRANSACTION ? "TRANSACTION" : "EVIDENCE") << " ###";
+	}
 
     t = true;
     bool isSealed = false;
@@ -788,6 +845,11 @@ Transactions Client::pending() const
     return m_tq.topTransactions(m_tq.status().current);
 }
 
+Transactions Client::pendingEvidences() const
+{
+	return m_eq.topTransactions(m_eq.status().current);
+}
+
 SyncStatus Client::syncStatus() const
 {
     auto h = m_host.lock();
@@ -836,7 +898,7 @@ void Client::rewind(unsigned _n)
     auto h = m_host.lock();
     if (h)
         h->reset();
-    m_tq.clear();
+    m_tq.clear(); m_eq.clear();
     m_bq.clear();
 }
 
@@ -846,12 +908,27 @@ pair<h256, Address> Client::submitTransaction(TransactionSkeleton const& _t, Sec
 
     TransactionSkeleton ts(_t);
     ts.from = toAddress(_secret);
-    if (_t.nonce == Invalid256)
-        ts.nonce = max<u256>(postSeal().transactionsFrom(ts.from), m_tq.maxNonce(ts.from));
+    if (_t.nonce == Invalid256) {
+    	if ( !ts.evidence )
+			ts.nonce = max<u256>(postSeal().transactionsFrom(ts.from), m_tq.maxNonce(ts.from));
+		else
+			ts.nonce = max<u256>(postSeal().evidencesFrom(ts.from), m_eq.maxNonce(ts.from));
+    }
+
     if (ts.gasPrice == Invalid256)
         ts.gasPrice = gasBidPrice();
     if (ts.gas == Invalid256)
         ts.gas = min<u256>(gasLimitRemaining() / 5, balanceAt(ts.from) / ts.gasPrice);
+
+	if (ts.evidence) {
+		Transaction t(ts, _secret);
+		t.updateSignature(_secret);
+
+		//cnote << "Evidence from " << t.from();
+		m_eq.import(t.rlp());
+
+		return make_pair(t.sha3(), toAddress(ts.from, ts.nonce));  //这个toAddress可能会有问题，要考虑transaction nonce 和 evidence nonce
+	}
 
     Transaction t(ts, _secret);
     m_tq.import(t.rlp());
@@ -880,4 +957,22 @@ ExecutionResult Client::call(Address const& _from, u256 _value, Address _dest, b
         // TODO: Some sort of notification of failure.
     }
     return ret;
+}
+
+void Client::setSealTypeThreshold(double _t)
+{
+	m_sealTypeThreshold = _t;
+
+	if (m_sealType == ClientSealType::FREE) {
+		DEV_WRITE_GUARDED(x_sealing)
+		{
+			srand(time(0));
+			double r = (rand() % 100) / (double)101.0;
+			if (r >= m_sealTypeThreshold)
+				m_sealType = ClientSealType::TRANSACTION;
+			else
+				m_sealType = ClientSealType::EVIDENCE;
+		}
+	}
+	cnote << "### client is in sealing state: " << (m_sealType == ClientSealType::TRANSACTION ? "TRANSACTION" : "EVIDENCE") << " ###";
 }

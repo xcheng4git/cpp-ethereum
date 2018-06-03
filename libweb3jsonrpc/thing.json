@@ -1,0 +1,4 @@
+[
+{ "name": "thing_sendEvidence", "params": [{}], "order": [], "returns": ""},
+{ "name": "thing_getEvidenceByHash", "params": [""], "order": [], "returns": {}}
+]

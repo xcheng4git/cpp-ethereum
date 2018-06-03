@@ -120,18 +120,32 @@ void Ethash::verify(Strictness _s, BlockHeader const& _bi, BlockHeader const& _p
 
         auto gasLimit = _bi.gasLimit();
         auto parentGasLimit = _parent.gasLimit();
-        if (
-            gasLimit < chainParams().minGasLimit ||
-            gasLimit > chainParams().maxGasLimit ||
-            gasLimit <= parentGasLimit - parentGasLimit / chainParams().gasLimitBoundDivisor ||
-            gasLimit >= parentGasLimit + parentGasLimit / chainParams().gasLimitBoundDivisor)
-            BOOST_THROW_EXCEPTION(
-                InvalidGasLimit()
-                << errinfo_min((bigint)((bigint)parentGasLimit - (bigint)(parentGasLimit / chainParams().gasLimitBoundDivisor)))
-                << errinfo_got((bigint)gasLimit)
-                << errinfo_max((bigint)((bigint)parentGasLimit + parentGasLimit / chainParams().gasLimitBoundDivisor))
-            );
-    }
+		if (_bi.blockType() == BlockType::EvidenceBlock) {
+			if (
+				gasLimit < chainParams().minGasLimit ||
+				gasLimit > chainParams().maxGasLimit)
+
+
+				BOOST_THROW_EXCEPTION(
+					InvalidGasLimit()
+					<< errinfo_min((bigint)((bigint)parentGasLimit - (bigint)(parentGasLimit / chainParams().gasLimitBoundDivisor)))
+					<< errinfo_got((bigint)gasLimit)
+					<< errinfo_max((bigint)((bigint)parentGasLimit + parentGasLimit / chainParams().gasLimitBoundDivisor))
+				);
+		}
+		else if (
+			gasLimit < chainParams().minGasLimit ||
+			gasLimit > chainParams().maxGasLimit ||
+			gasLimit <= parentGasLimit - parentGasLimit / chainParams().gasLimitBoundDivisor ||
+			gasLimit >= parentGasLimit + parentGasLimit / chainParams().gasLimitBoundDivisor)
+			BOOST_THROW_EXCEPTION(
+				InvalidGasLimit()
+				<< errinfo_min((bigint)((bigint)parentGasLimit - (bigint)(parentGasLimit / chainParams().gasLimitBoundDivisor)))
+				<< errinfo_got((bigint)gasLimit)
+				<< errinfo_max((bigint)((bigint)parentGasLimit + parentGasLimit / chainParams().gasLimitBoundDivisor))
+			);
+	}
+
 
     // check it hashes according to proof of work or that it's the genesis block.
     if (_s == CheckEverything && _bi.parentHash() && !verifySeal(_bi))
@@ -243,7 +257,12 @@ void Ethash::populateFromParent(BlockHeader& _bi, BlockHeader const& _parent) co
 {
     SealEngineFace::populateFromParent(_bi, _parent);
     _bi.setDifficulty(calculateDifficulty(_bi, _parent));
-    _bi.setGasLimit(childGasLimit(_parent));
+	if (_bi.blockType() == BlockType::EvidenceBlock) {
+		//_bi.setGasLimit(chainParams().maxGasLimit);
+		_bi.setGasLimit(u256(fromBigEndian<u256>(fromHex("0x400000000000"))));
+	}
+	else
+        _bi.setGasLimit(childGasLimit(_parent));
 }
 
 bool Ethash::quickVerifySeal(BlockHeader const& _blockHeader) const

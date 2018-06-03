@@ -48,6 +48,8 @@
 
 #include <libweb3jsonrpc/AccountHolder.h>
 #include <libweb3jsonrpc/Eth.h>
+#include <libweb3jsonrpc/Thing.h>
+#include <libweb3jsonrpc/SafeHttpServer.h>
 #include <libweb3jsonrpc/ModularServer.h>
 #include <libweb3jsonrpc/IpcServer.h>
 #include <libweb3jsonrpc/Net.h>
@@ -202,7 +204,11 @@ int main(int argc, char** argv)
     /// General params for Node operation
     NodeMode nodeMode = NodeMode::Full;
 
+	int jsonRPCURL = -1;
+	bool adminViaHttp = false;
     bool ipc = true;
+	std::string rpcCorsDomain = "";
+
 
     string jsonAdmin;
     ChainParams chainParams;
@@ -287,10 +293,14 @@ int main(int argc, char** argv)
         "Configure specialised blockchain using given JSON information\n");
     addClientOption("mode,o", po::value<string>()->value_name("<full/peer>"),
         "Start a full node or a peer node (default: full)\n");
-    addClientOption("ipc", "Enable IPC server (default: on)");
+	addClientOption("json-rpc,j", "Enable JSON-RPC server (default: off).\n");
+    addClientOption("ipc", "Enable IPC server (default: on).");
     addClientOption("ipcpath", po::value<string>()->value_name("<path>"),
         "Set .ipc socket path (default: data directory)");
-    addClientOption("no-ipc", "Disable IPC server");
+	addClientOption("admin-via-http", "Expose admin interface via http - UNSAFE! (default: off)");
+    addClientOption("no-ipc", "Disable IPC server.");
+	addClientOption("json-rpc-port", po::value<int>()->value_name("<n>"), ("Specify JSON-RPC server port (implies '-j', default: " +
+		toString(SensibleHttpPort) + ").").c_str());
     addClientOption("admin", po::value<string>()->value_name("<password>"),
         "Specify admin session key for JSON-RPC (default: auto-generated and printed at "
         "start-up)");
@@ -526,6 +536,14 @@ int main(int argc, char** argv)
     }
     if (vm.count("import-presale"))
         presaleImports.push_back(vm["import-presale"].as<string>());
+
+	if (vm.count("json-rpc"))
+		jsonRPCURL = jsonRPCURL == -1 ? SensibleHttpPort : jsonRPCURL;
+	if (vm.count("admin-via-http"))
+		adminViaHttp = true;
+	if (vm.count("json-rpc-port"))
+		jsonRPCURL = vm["Json-rpc-port"].as<int>();
+        
     if (vm.count("admin"))
         jsonAdmin = vm["admin"].as<string>();
     if (vm.count("ipc"))
@@ -1050,6 +1068,7 @@ int main(int argc, char** argv)
     else
         cout << "Networking disabled. To start, use netstart or pass --bootstrap or a remote host.\n";
 
+	unique_ptr<ModularServer<>> jsonrpcHttpServer;
     unique_ptr<ModularServer<>> jsonrpcIpcServer;
     unique_ptr<rpc::SessionManager> sessionManager;
     unique_ptr<SimpleAccountHolder> accountHolder;
@@ -1082,10 +1101,10 @@ int main(int argc, char** argv)
 
     ExitHandler exitHandler;
 
-    if (ipc)
+    if (jsonRPCURL>-1 || ipc)
     {
         using FullServer = ModularServer<
-            rpc::EthFace,
+            rpc::EthFace, rpc::ThingFace,
             rpc::NetFace, rpc::Web3Face, rpc::PersonalFace,
             rpc::AdminEthFace, rpc::AdminNetFace,
             rpc::DebugFace, rpc::TestFace
@@ -1098,17 +1117,47 @@ int main(int argc, char** argv)
         if (testingMode)
             testEth = new rpc::Test(*web3.ethereum());
 
-        jsonrpcIpcServer.reset(new FullServer(
-            ethFace, new rpc::Net(web3),
-            new rpc::Web3(web3.clientVersion()), new rpc::Personal(keyManager, *accountHolder, *web3.ethereum()),
-            new rpc::AdminEth(*web3.ethereum(), *gasPricer.get(), keyManager, *sessionManager.get()),
-            new rpc::AdminNet(web3, *sessionManager.get()),
-            new rpc::Debug(*web3.ethereum()),
-            testEth
-        ));
-        auto ipcConnector = new IpcServer("geth");
-        jsonrpcIpcServer->addConnector(ipcConnector);
-        ipcConnector->StartListening();
+		if (jsonRPCURL >= 0) {
+			rpc::AdminEth* adminEth = nullptr;
+			rpc::PersonalFace* personal = nullptr;
+			rpc::AdminNet* adminNet = nullptr;
+			
+			if (adminViaHttp) {
+				personal = new rpc::Personal(keyManager, *accountHolder, *web3.ethereum());
+				adminEth = new rpc::AdminEth(*web3.ethereum(), *gasPricer.get(), keyManager, *sessionManager.get());
+				adminNet = new rpc::AdminNet(web3, *sessionManager.get());
+			}
+			jsonrpcHttpServer.reset(new FullServer(
+				ethFace, new rpc::Thing(*web3.ethereum(), *accountHolder.get()),
+				new rpc::Net(web3), 
+				new rpc::Web3(web3.clientVersion()), 
+				personal,
+				adminEth, 
+				adminNet,
+				new rpc::Debug(*web3.ethereum()),
+				testEth
+			));
+			auto httpConnector = new SafeHttpServer(jsonRPCURL, "", "", SensibleHttpThreads);
+			httpConnector->setAllowedOrigin(rpcCorsDomain);
+			jsonrpcHttpServer->addConnector(httpConnector);
+			jsonrpcHttpServer->StartListening();
+		}
+
+		if (ipc) {
+			jsonrpcIpcServer.reset(new FullServer(
+				ethFace, new rpc::Thing(*web3.ethereum(), *accountHolder.get()),
+				new rpc::Net(web3),
+				new rpc::Web3(web3.clientVersion()),
+				new rpc::Personal(keyManager, *accountHolder, *web3.ethereum()),
+				new rpc::AdminEth(*web3.ethereum(), *gasPricer.get(), keyManager, *sessionManager.get()),
+				new rpc::AdminNet(web3, *sessionManager.get()),
+				new rpc::Debug(*web3.ethereum()),
+				testEth
+			));
+            auto ipcConnector = new IpcServer("geth");
+            jsonrpcIpcServer->addConnector(ipcConnector);
+            ipcConnector->StartListening();
+        }
 
         if (jsonAdmin.empty())
             jsonAdmin = sessionManager->newSession(rpc::SessionPermissions{{rpc::Privilege::Admin}});
@@ -1116,6 +1165,9 @@ int main(int argc, char** argv)
             sessionManager->addSession(jsonAdmin, rpc::SessionPermissions{{rpc::Privilege::Admin}});
 
         cout << "JSONRPC Admin Session Key: " << jsonAdmin << "\n";
+		writeFile(getDataDir("web3") / fs::path("session.key"), jsonAdmin);
+		writeFile(getDataDir("web3") / fs::path("session.url"), "http://localhost:" + toString(jsonRPCURL));
+        
     }
 
     for (auto const& p: preferredNodes)
@@ -1146,6 +1198,9 @@ int main(int argc, char** argv)
     else
         while (!exitHandler.shouldExit())
             this_thread::sleep_for(chrono::milliseconds(1000));
+
+	if (jsonrpcHttpServer.get())
+		jsonrpcHttpServer->StopListening();
 
     if (jsonrpcIpcServer.get())
         jsonrpcIpcServer->StopListening();

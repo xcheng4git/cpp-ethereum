@@ -39,7 +39,8 @@ namespace js = json_spirit;
 ChainParams::ChainParams()
 {
 	for (unsigned i = 1; i <= 4; ++i)
-		genesisState[Address(i)] = Account(0, 1);
+		genesisState[Address(i)] = Account(0, 0, 1);
+
 	// Setup default precompiled contracts as equal to genesis of Frontier.
 	precompiled.insert(make_pair(Address(1), PrecompiledContract(3000, 0, PrecompiledRegistrar::executor("ecrecover"))));
 	precompiled.insert(make_pair(Address(2), PrecompiledContract(60, 12, PrecompiledRegistrar::executor("sha256"))));
@@ -82,12 +83,13 @@ string const c_durationLimit = "durationLimit";
 string const c_chainID = "chainID";
 string const c_networkID = "networkID";
 string const c_allowFutureBlocks = "allowFutureBlocks";
+string const c_sealTypeThrehold = "sealTypeThreshold";
 
 set<string> const c_knownParamNames = {c_minGasLimit, c_maxGasLimit, c_gasLimitBoundDivisor,
     c_homesteadForkBlock, c_EIP150ForkBlock, c_EIP158ForkBlock, c_accountStartNonce,
     c_maximumExtraDataSize, c_tieBreakingGas, c_blockReward, c_byzantiumForkBlock, c_eWASMForkBlock,
     c_constantinopleForkBlock, c_daoHardforkBlock, c_minimumDifficulty, c_difficultyBoundDivisor,
-    c_durationLimit, c_chainID, c_networkID, c_allowFutureBlocks};
+    c_durationLimit, c_chainID, c_networkID, c_allowFutureBlocks, c_sealTypeThrehold };
 } // anonymous namespace
 
 ChainParams ChainParams::loadConfig(
@@ -134,6 +136,9 @@ ChainParams ChainParams::loadConfig(
 		cp.networkID = int(u256(fromBigEndian<u256>(fromHex(params.at(c_networkID).get_str()))));
 	cp.allowFutureBlocks = params.count(c_allowFutureBlocks);
 
+	if (params.count(c_sealTypeThrehold))
+		cp.sealTypeThreshold = atof(params.at(c_sealTypeThrehold).get_str().c_str());
+
 	// genesis
 	string genesisStr = json_spirit::write_string(obj[c_genesis], false);
 	cp = cp.loadGenesis(genesisStr, _stateRoot);
@@ -156,12 +161,13 @@ string const c_difficulty = "difficulty";
 string const c_gasLimit = "gasLimit";
 string const c_gasUsed = "gasUsed";
 string const c_timestamp = "timestamp";
+string const c_blockType = "blockType";
 string const c_extraData = "extraData";
 string const c_mixHash = "mixHash";
 string const c_nonce = "nonce";
 
 set<string> const c_knownGenesisFields = {
-	c_parentHash, c_coinbase, c_author, c_difficulty, c_gasLimit, c_gasUsed, c_timestamp,
+	c_parentHash, c_coinbase, c_author, c_difficulty, c_gasLimit, c_gasUsed, c_timestamp, c_blockType,
 	c_extraData, c_mixHash, c_nonce
 };
 }
@@ -182,6 +188,7 @@ ChainParams ChainParams::loadGenesis(string const& _json, h256 const& _stateRoot
 	cp.gasLimit = u256(fromBigEndian<u256>(fromHex(genesis[c_gasLimit].get_str())));
 	cp.gasUsed = genesis.count(c_gasUsed) ? u256(fromBigEndian<u256>(fromHex(genesis[c_gasUsed].get_str()))) : 0;
 	cp.timestamp = u256(fromBigEndian<u256>(fromHex(genesis[c_timestamp].get_str())));
+	cp.blockType = BlockType(atoi(genesis[c_blockType].get_str().c_str()));
 	cp.extraData = bytes(fromHex(genesis[c_extraData].get_str()));
 
 	// magic code for handling ethash stuff:
@@ -220,6 +227,7 @@ void ChainParams::populateFromGenesis(bytes const& _genesisRLP, AccountMap const
 	gasLimit = bi.gasLimit();
 	gasUsed = bi.gasUsed();
 	timestamp = bi.timestamp();
+	blockType = bi.blockType();
 	extraData = bi.extraData();
 	genesisState = _state;
 	RLP r(_genesisRLP);
@@ -275,6 +283,7 @@ bytes ChainParams::genesisBlock() const
 			<< gasLimit
 			<< gasUsed			// gasUsed
 			<< timestamp
+		    << blockType
 			<< extraData;
 	block.appendRaw(sealRLP, sealFields);
 	block.appendRaw(RLPEmptyList);

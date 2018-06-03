@@ -202,6 +202,8 @@ template<class... Args> using Handler = std::shared_ptr<typename Signal<Args...>
 struct TransactionSkeleton
 {
 	bool creation = false;
+	bool evidence = false;
+	
 	Address from;
 	Address to;
 	u256 value;

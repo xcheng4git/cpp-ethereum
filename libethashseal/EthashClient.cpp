@@ -47,9 +47,9 @@ DEV_SIMPLE_EXCEPTION(ChainParamsNotEthash);
 EthashClient::EthashClient(ChainParams const& _params, int _networkID, p2p::Host* _host,
     std::shared_ptr<GasPricer> _gpForAdoption, fs::path const& _dbPath,
     fs::path const& _snapshotPath, WithExisting _forceAction,
-    TransactionQueue::Limits const& _limits)
+    TransactionQueue::Limits const& _l, TransactionQueue::Limits const& _le)
   : Client(
-        _params, _networkID, _host, _gpForAdoption, _dbPath, _snapshotPath, _forceAction, _limits)
+        _params, _networkID, _host, _gpForAdoption, _dbPath, _snapshotPath, _forceAction, _l,_le)
 {
     // will throw if we're not an Ethash seal engine.
     asEthashClient(*this);

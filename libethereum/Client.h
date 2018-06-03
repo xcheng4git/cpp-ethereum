@@ -60,6 +60,12 @@ enum ClientWorkState
     Deleting,
     Deleted
 };
+		enum ClientSealType
+		{
+			FREE = 0,
+			TRANSACTION,
+			EVIDENCE
+		};
 
 struct ActivityReport
 {
@@ -83,7 +89,8 @@ public:
         boost::filesystem::path const& _dbPath = boost::filesystem::path(),
         boost::filesystem::path const& _snapshotPath = boost::filesystem::path(),
         WithExisting _forceAction = WithExisting::Trust,
-        TransactionQueue::Limits const& _l = TransactionQueue::Limits{1024, 1024}
+ 		TransactionQueue::Limits const& _l = TransactionQueue::Limits{ 1024, 1024 },
+		TransactionQueue::Limits const& _le = TransactionQueue::Limits{ 256, 256 }
     );
     /// Destructor.
     virtual ~Client();
@@ -92,6 +99,7 @@ public:
     ChainParams const& chainParams() const { return bc().chainParams(); }
 
     ImportResult injectTransaction(bytes const& _rlp, IfDropped _id = IfDropped::Ignore) override { prepareForTransaction(); return m_tq.import(_rlp, _id); }
+    //ImportResult injectEvidence(bytes const& _rlp, IfDropped _id = IfDropped::Ignore) override { prepareForTransaction(); return m_eq.import(_rlp, _id); }    
 
     /// Resets the gas pricer to some other object.
     void setGasPricer(std::shared_ptr<GasPricer> _gp) { m_gp = _gp; }
@@ -109,6 +117,7 @@ public:
 
     /// Retrieve pending transactions
     Transactions pending() const override;
+	Transactions pendingEvidences() const;
 
     /// Queues a block for import.
     ImportResult queueBlock(bytes const& _block, bool _isSafe = false);
@@ -211,6 +220,9 @@ public:
     /// should be called after the constructor of the most derived class finishes.
     void startWorking() { Worker::startWorking(); };
 
+	///
+	void setSealTypeThreshold(double _t);
+
 protected:
     /// Perform critical setup functions.
     /// Must be called in the constructor of the finally derived class.
@@ -301,9 +313,15 @@ protected:
     /// Executes the pending functions in m_functionQueue
     void callQueuedFunctions();
 
+    mutable SharedMutex x_sealing;
+    ClientSealType m_sealType;
+    double m_sealTypeThreshold;
+    mutable std::unordered_map<h128, bytesSec> m_cachedSecret;
+
     BlockChain m_bc;                        ///< Maintains block database and owns the seal engine.
     BlockQueue m_bq;                        ///< Maintains a list of incoming blocks not yet on the blockchain (to be imported).
     TransactionQueue m_tq;                  ///< Maintains a list of incoming transactions not yet in a block on the blockchain.
+	TransactionQueue m_eq;					///< Maintains a list of incoming evidences not yet in a block on the blockchain.
 
     std::shared_ptr<GasPricer> m_gp;        ///< The gas pricer.
 
@@ -328,6 +346,9 @@ protected:
 
     Handler<> m_tqReady;
     Handler<h256 const&> m_tqReplaced;
+	Handler<> m_eqReady;
+	Handler<h256 const&> m_eqReplaced;
+
     Handler<> m_bqReady;
 
     bool m_wouldSeal = false;               ///< True if we /should/ be sealing.
@@ -349,6 +370,7 @@ protected:
     std::atomic<bool> m_syncBlockQueue = {false};
 
     bytes m_extraData;
+    
 
     Logger m_logger{createLogger(VerbosityInfo, "client")};
     Logger m_loggerDetail{createLogger(VerbosityDebug, "client")};

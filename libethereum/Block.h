@@ -125,6 +125,7 @@ public:
     /// Get the number of transactions a particular address has sent (used for the transaction nonce).
     /// @returns 0 if the address has never been used.
     u256 transactionsFrom(Address const& _address) const { return m_state.getNonce(_address); }
+	u256 evidencesFrom(Address const& _address) const { return m_state.getNonce4Evidence(_address); }
 
     /// Check if the address is in use.
     bool addressInUse(Address const& _address) const { return m_state.addressInUse(_address); }
@@ -211,10 +212,12 @@ public:
     /// Execute a given transaction.
     /// This will append @a _t to the transaction list and change the state accordingly.
     ExecutionResult execute(LastBlockHashesFace const& _lh, Transaction const& _t, Permanence _p = Permanence::Committed, OnOpFunc const& _onOp = OnOpFunc());
+	ExecutionResult executeEvidence(LastBlockHashesFace const& _lh, Transaction const& _t, Permanence _p = Permanence::Committed, OnOpFunc const& _onOp = OnOpFunc());
 
     /// Sync our transactions, killing those from the queue that we have and assimilating those that we don't.
     /// @returns a list of receipts one for each transaction placed from the queue into the state and bool, true iff there are more transactions to be processed.
     std::pair<TransactionReceipts, bool> sync(BlockChain const& _bc, TransactionQueue& _tq, GasPricer const& _gp, unsigned _msTimeout = 100);
+	std::pair<TransactionReceipts, bool> syncEvidence(BlockChain const& _bc, TransactionQueue& _eq, GasPricer const& _gp, unsigned _msTimeout = 100);
 
     /// Sync our state with the block chain.
     /// This basically involves wiping ourselves if we've been superceded and rebuilding from the transaction queue.
@@ -243,6 +246,7 @@ public:
     ///
     /// This may be called multiple times and without issue.
     void commitToSeal(BlockChain const& _bc, bytes const& _extraData = {});
+	void commitToSealEvidence(BlockChain const& _bc, bytes const& _extraData = {});
 
     /// Pass in a properly sealed header matching this block.
     /// @returns true iff we were previously committed to sealing, the header is valid and it
@@ -264,6 +268,7 @@ public:
 
     /// @returns true if sealed - in this case you can no longer append transactions.
     bool isSealed() const { return !m_currentBytes.empty(); }
+	bool canSyncEvidence() const { return m_transactions.size() < 1;  }
 
     /// Get the complete current block, including valid nonce.
     /// Only valid when isSealed() is true.

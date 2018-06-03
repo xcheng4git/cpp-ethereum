@@ -47,7 +47,13 @@ class Interface;
 
 namespace dev
 {
-
+#if ETH_DEBUG
+ const unsigned SensibleHttpThreads = 1;
+#else
+ const unsigned SensibleHttpThreads = 4;
+#endif
+ const unsigned SensibleHttpPort = 8545;
+ 
 namespace rpc
 {
 

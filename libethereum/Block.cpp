@@ -44,6 +44,7 @@ namespace fs = boost::filesystem;
 #define ETH_TIMED_ENACTMENTS 0
 
 static const unsigned c_maxSyncTransactions = 1024;
+static const unsigned c_maxSyncEvidences = 1;
 
 namespace
 {
@@ -411,6 +412,111 @@ pair<TransactionReceipts, bool> Block::sync(BlockChain const& _bc, TransactionQu
     return ret;
 }
 
+pair<TransactionReceipts, bool> Block::syncEvidence(BlockChain const& _bc, TransactionQueue& _eq, GasPricer const& _gp, unsigned msTimeout)
+{
+	if (isSealed())
+		BOOST_THROW_EXCEPTION(InvalidOperationOnSealedBlock());
+
+	noteChain(_bc);
+
+	// EVIDENCES
+	pair<TransactionReceipts, bool> ret;
+	auto es = _eq.topTransactions(c_maxSyncEvidences, m_transactionSet);
+	ret.second = (es.size() == c_maxSyncEvidences);	// say there's more to the caller if we hit the limit
+	if (ret.second && !canSyncEvidence()) {  // say one block for only one evidence.
+		//ctrace << "Many evidences are pending, but only one evidence can be sealed in one block.";
+		return ret;
+	}
+
+
+	assert(_bc.currentHash() == m_currentBlock.parentHash());
+	auto deadline = chrono::steady_clock::now() + chrono::milliseconds(msTimeout);
+
+	for (int goodTxs = max(0, (int)es.size() - 1); goodTxs < (int)es.size(); )
+	{
+		goodTxs = 0;
+		for (auto const& t : es)
+			if (!m_transactionSet.count(t.sha3()))
+			{
+				try
+				{
+					if (t.gasPrice() >= _gp.ask(*this))
+					{
+						//						Timer t;
+						executeEvidence(_bc.lastBlockHashes(), t);
+						ret.first.push_back(m_receipts.back());
+						//ret.first.push_back(m_receipts4Evidences.back());
+						++goodTxs;
+						//						cnote << "TX took:" << t.elapsed() * 1000;
+					}
+					else if (t.gasPrice() < _gp.ask(*this) * 9 / 10)
+					{
+						LOG(m_logger) << t.sha3() << "Dropping El Cheapo evidence (<90% of ask price)";
+						_eq.drop(t.sha3());
+					}
+				}
+				catch (InvalidNonce const& in)
+				{
+					bigint const& req = *boost::get_error_info<errinfo_required>(in);
+					bigint const& got = *boost::get_error_info<errinfo_got>(in);
+
+					if (req > got)
+					{
+						// too old
+						LOG(m_logger) << t.sha3() << "Dropping old evidence (nonce too low)";
+						_eq.drop(t.sha3());
+					}
+					else if (got > req + _eq.waiting(t.sender()))
+					{
+						// too new
+						LOG(m_logger) << t.sha3() << "Dropping new evidence (too many nonces ahead)";
+						_eq.drop(t.sha3());
+					}
+					else
+						_eq.setFuture(t.sha3());
+				}
+				catch (BlockGasLimitReached const& e)
+				{
+					bigint const& got = *boost::get_error_info<errinfo_got>(e);
+					if (got > m_currentBlock.gasLimit())
+					{
+						LOG(m_logger) << t.sha3() << "Dropping over-gassy evidence (gas > block's gas limit)";
+						LOG(m_logger) << "got: " << got << " required: " << m_currentBlock.gasLimit();
+						_eq.drop(t.sha3());
+					}
+					else
+					{
+						LOG(m_logger) << t.sha3() << "Temporarily no gas left in current block (txs gas > block's gas limit)";
+						//_tq.drop(t.sha3());
+						// Temporarily no gas left in current block.
+						// OPTIMISE: could note this and then we don't evaluate until a block that does have the gas left.
+						// for now, just leave alone.
+					}
+				}
+				catch (Exception const& _e)
+				{
+					// Something else went wrong - drop it.
+					LOG(m_logger) << t.sha3() << "Dropping invalid evidence:" << diagnostic_information(_e);
+					_eq.drop(t.sha3());
+				}
+				catch (std::exception const&)
+				{
+					// Something else went wrong - drop it.
+					_eq.drop(t.sha3());
+					cwarn << t.sha3() << "Evidence caused low-level exception :(";
+				}
+			}
+		if (chrono::steady_clock::now() > deadline)
+		{
+			ret.second = true;	// say there's more to the caller if we ended up crossing the deadline.
+			break;
+		}
+	}
+
+	return ret;
+}
+
+
 u256 Block::enactOn(VerifiedBlockRef const& _block, BlockChain const& _bc)
 {
     noteChain(_bc);
@@ -543,93 +649,95 @@ u256 Block::enact(VerifiedBlockRef const& _block, BlockChain const& _bc)
         BOOST_THROW_EXCEPTION(ex);
     }
 
-    vector<BlockHeader> rewarded;
-    h256Hash excluded;
-    DEV_TIMED_ABOVE("allKin", 500)
-        excluded = _bc.allKinFrom(m_currentBlock.parentHash(), 6);
-    excluded.insert(m_currentBlock.hash());
+	if (m_currentBlock.blockType() != BlockType::EvidenceBlock) {
+        vector<BlockHeader> rewarded;
+        h256Hash excluded;
+        DEV_TIMED_ABOVE("allKin", 500)
+            excluded = _bc.allKinFrom(m_currentBlock.parentHash(), 6);
+        excluded.insert(m_currentBlock.hash());
 
-    unsigned ii = 0;
-    DEV_TIMED_ABOVE("uncleCheck", 500)
-        for (auto const& i: rlp[2])
-        {
-            try
+        unsigned ii = 0;
+        DEV_TIMED_ABOVE("uncleCheck", 500)
+            for (auto const& i: rlp[2])
             {
-                auto h = sha3(i.data());
-                if (excluded.count(h))
+                try
                 {
-                    UncleInChain ex;
-                    ex << errinfo_comment("Uncle in block already mentioned");
-                    ex << errinfo_unclesExcluded(excluded);
-                    ex << errinfo_hash256(sha3(i.data()));
-                    BOOST_THROW_EXCEPTION(ex);
+                    auto h = sha3(i.data());
+                    if (excluded.count(h))
+                    {
+                        UncleInChain ex;
+                        ex << errinfo_comment("Uncle in block already mentioned");
+                        ex << errinfo_unclesExcluded(excluded);
+                        ex << errinfo_hash256(sha3(i.data()));
+                        BOOST_THROW_EXCEPTION(ex);
+                    }
+                    excluded.insert(h);
+
+                    // CheckNothing since it's a VerifiedBlock.
+                    BlockHeader uncle(i.data(), HeaderData, h);
+
+                    BlockHeader uncleParent;
+                    if (!_bc.isKnown(uncle.parentHash()))
+                        BOOST_THROW_EXCEPTION(UnknownParent() << errinfo_hash256(uncle.parentHash()));
+                    uncleParent = BlockHeader(_bc.block(uncle.parentHash()));
+
+                    // m_currentBlock.number() - uncle.number()		m_cB.n - uP.n()
+                    // 1											2
+                    // 2
+                    // 3
+                    // 4
+                    // 5
+                    // 6											7
+                    //												(8 Invalid)
+                    bigint depth = (bigint)m_currentBlock.number() - (bigint)uncle.number();
+                    if (depth > 6)
+                    {
+                        UncleTooOld ex;
+                        ex << errinfo_uncleNumber(uncle.number());
+                        ex << errinfo_currentNumber(m_currentBlock.number());
+                        BOOST_THROW_EXCEPTION(ex);
+                    }
+                    else if (depth < 1)
+                    {
+                        UncleIsBrother ex;
+                        ex << errinfo_uncleNumber(uncle.number());
+                        ex << errinfo_currentNumber(m_currentBlock.number());
+                        BOOST_THROW_EXCEPTION(ex);
+                    }
+                    // cB
+                    // cB.p^1	    1 depth, valid uncle
+                    // cB.p^2	---/  2
+                    // cB.p^3	-----/  3
+                    // cB.p^4	-------/  4
+                    // cB.p^5	---------/  5
+                    // cB.p^6	-----------/  6
+                    // cB.p^7	-------------/
+                    // cB.p^8
+                    auto expectedUncleParent = _bc.details(m_currentBlock.parentHash()).parent;
+                    for (unsigned i = 1; i < depth; expectedUncleParent = _bc.details(expectedUncleParent).parent, ++i) {}
+                    if (expectedUncleParent != uncleParent.hash())
+                    {
+                        UncleParentNotInChain ex;
+                        ex << errinfo_uncleNumber(uncle.number());
+                        ex << errinfo_currentNumber(m_currentBlock.number());
+                        BOOST_THROW_EXCEPTION(ex);
+                    }
+                    uncle.verify(CheckNothingNew/*CheckParent*/, uncleParent);
+
+                    rewarded.push_back(uncle);
+                    ++ii;
                 }
-                excluded.insert(h);
-
-                // CheckNothing since it's a VerifiedBlock.
-                BlockHeader uncle(i.data(), HeaderData, h);
-
-                BlockHeader uncleParent;
-                if (!_bc.isKnown(uncle.parentHash()))
-                    BOOST_THROW_EXCEPTION(UnknownParent() << errinfo_hash256(uncle.parentHash()));
-                uncleParent = BlockHeader(_bc.block(uncle.parentHash()));
-
-                // m_currentBlock.number() - uncle.number()		m_cB.n - uP.n()
-                // 1											2
-                // 2
-                // 3
-                // 4
-                // 5
-                // 6											7
-                //												(8 Invalid)
-                bigint depth = (bigint)m_currentBlock.number() - (bigint)uncle.number();
-                if (depth > 6)
+                catch (Exception& ex)
                 {
-                    UncleTooOld ex;
-                    ex << errinfo_uncleNumber(uncle.number());
-                    ex << errinfo_currentNumber(m_currentBlock.number());
-                    BOOST_THROW_EXCEPTION(ex);
+                    ex << errinfo_uncleIndex(ii);
+                    throw;
                 }
-                else if (depth < 1)
-                {
-                    UncleIsBrother ex;
-                    ex << errinfo_uncleNumber(uncle.number());
-                    ex << errinfo_currentNumber(m_currentBlock.number());
-                    BOOST_THROW_EXCEPTION(ex);
-                }
-                // cB
-                // cB.p^1	    1 depth, valid uncle
-                // cB.p^2	---/  2
-                // cB.p^3	-----/  3
-                // cB.p^4	-------/  4
-                // cB.p^5	---------/  5
-                // cB.p^6	-----------/  6
-                // cB.p^7	-------------/
-                // cB.p^8
-                auto expectedUncleParent = _bc.details(m_currentBlock.parentHash()).parent;
-                for (unsigned i = 1; i < depth; expectedUncleParent = _bc.details(expectedUncleParent).parent, ++i) {}
-                if (expectedUncleParent != uncleParent.hash())
-                {
-                    UncleParentNotInChain ex;
-                    ex << errinfo_uncleNumber(uncle.number());
-                    ex << errinfo_currentNumber(m_currentBlock.number());
-                    BOOST_THROW_EXCEPTION(ex);
-                }
-                uncle.verify(CheckNothingNew/*CheckParent*/, uncleParent);
-
-                rewarded.push_back(uncle);
-                ++ii;
             }
-            catch (Exception& ex)
-            {
-                ex << errinfo_uncleIndex(ii);
-                throw;
-            }
-        }
 
-    assert(_bc.sealEngine());
-    DEV_TIMED_ABOVE("applyRewards", 500)
-        applyRewards(rewarded, _bc.sealEngine()->blockReward(m_currentBlock.number()));
+        assert(_bc.sealEngine());
+        DEV_TIMED_ABOVE("applyRewards", 500)
+            applyRewards(rewarded, _bc.sealEngine()->blockReward(m_currentBlock.number()));
+    }
 
     // Commit all cached state changes to the state trie.
     bool removeEmptyAccounts = m_currentBlock.number() >= _bc.chainParams().EIP158ForkBlock; // TODO: use EVMSchedule
@@ -674,6 +782,35 @@ ExecutionResult Block::execute(LastBlockHashesFace const& _lh, Transaction const
     }
 
     return resultReceipt.first;
+}
+
+ExecutionResult Block::executeEvidence(LastBlockHashesFace const& _lh, Transaction const& _t, Permanence _p, OnOpFunc const& _onOp)
+{
+	if (isSealed())
+		BOOST_THROW_EXCEPTION(InvalidOperationOnSealedBlock());
+
+	// Uncommitting is a non-trivial operation - only do it once we've verified as much of the
+	// transaction as possible.
+	uncommitToSeal();
+
+
+	//std::pair<ExecutionResult, TransactionReceipt> resultReceipt = m_state.execute(EnvInfo(info(), _lh, gasUsed()), *m_sealEngine, _t, _p, _onOp);
+	Transaction evidence(_t);
+	evidence.updateEvidence(Secret());  ///不论是哪个peer,只要有一个先从服务器下载了evidence,其他的就不行了。
+
+	//cnote << "Execute evidence from " << toString(evidence.from()) << ", with sha3() is " << toString(evidence.sha3(WithoutSignature)) ;
+	std::pair<ExecutionResult, TransactionReceipt> resultReceipt = m_state.execute(EnvInfo(info(), _lh, gasUsed()), *m_sealEngine, evidence, _p, _onOp);
+
+	if (_p == Permanence::Committed)
+	{
+		// Add to the user-originated transactions that we've executed.
+		//m_transactions.push_back(_t);
+		m_transactions.push_back(evidence);
+		m_receipts.push_back(resultReceipt.second);
+		m_transactionSet.insert(_t.sha3());
+	}
+
+	return resultReceipt.first;
 }
 
 void Block::applyRewards(vector<BlockHeader> const& _uncleBlockHeaders, u256 const& _blockReward)
@@ -818,6 +955,106 @@ void Block::commitToSeal(BlockChain const& _bc, bytes const& _extraData)
     }
 
     m_committedToSeal = true;
+}
+
+void Block::commitToSealEvidence(BlockChain const& _bc, bytes const& _extraData)
+{
+	if (isSealed())
+		BOOST_THROW_EXCEPTION(InvalidOperationOnSealedBlock());
+
+	noteChain(_bc);
+
+	if (m_committedToSeal)
+		uncommitToSeal();
+	else
+		m_precommit = m_state;
+
+	vector<BlockHeader> uncleBlockHeaders;
+
+	RLPStream unclesData;
+	unsigned unclesCount = 0;
+#if 0  /// say no other information in evidence block
+	if (m_previousBlock.number() != 0)
+	{
+		// Find great-uncles (or second-cousins or whatever they are) - children of great-grandparents, great-great-grandparents... that were not already uncles in previous generations.
+		clog(StateDetail) << "Checking " << m_previousBlock.hash() << ", parent=" << m_previousBlock.parentHash();
+		h256Hash excluded = _bc.allKinFrom(m_currentBlock.parentHash(), 6);
+		auto p = m_previousBlock.parentHash();
+		for (unsigned gen = 0; gen < 6 && p != _bc.genesisHash() && unclesCount < 2; ++gen, p = _bc.details(p).parent)
+		{
+			auto us = _bc.details(p).children;
+			assert(us.size() >= 1);	// must be at least 1 child of our grandparent - it's our own parent!
+			for (auto const& u : us)
+				if (!excluded.count(u))	// ignore any uncles/mainline blocks that we know about.
+				{
+					uncleBlockHeaders.push_back(_bc.info(u));
+					unclesData.appendRaw(_bc.headerData(u));
+					++unclesCount;
+					if (unclesCount == 2)
+						break;
+					excluded.insert(u);
+				}
+		}
+	}
+#endif
+
+	BytesMap transactionsMap;
+	BytesMap receiptsMap;
+
+	RLPStream txs;
+	txs.appendList(m_transactions.size());
+
+	for (unsigned i = 0; i < m_transactions.size(); ++i)
+	{
+		//cnote << "RLP evidence " << i << " from " << toString(m_transactions[i].from());
+		RLPStream k;
+		k << i;
+
+		RLPStream receiptrlp;
+		receipt(i).streamRLP(receiptrlp);
+		receiptsMap.insert(std::make_pair(k.out(), receiptrlp.out()));
+
+		RLPStream txrlp;
+		m_transactions[i].streamRLP(txrlp);
+		transactionsMap.insert(std::make_pair(k.out(), txrlp.out()));
+
+		txs.appendRaw(txrlp.out());
+	}
+
+	txs.swapOut(m_currentTxs);
+
+	RLPStream(unclesCount).appendRaw(unclesData.out(), unclesCount).swapOut(m_currentUncles);
+
+	// Apply rewards last of all.
+#if 0   ///no uncles, no rewards
+	assert(_bc.sealEngine());
+	applyRewards(uncleBlockHeaders, _bc.sealEngine()->blockReward(m_currentBlock.number()));
+#endif
+
+	// Commit any and all changes to the trie that are in the cache, then update the state root accordingly.
+	bool removeEmptyAccounts = m_currentBlock.number() >= _bc.chainParams().EIP158ForkBlock; // TODO: use EVMSchedule
+	DEV_TIMED_ABOVE("commit", 500)
+		m_state.commit(removeEmptyAccounts ? State::CommitBehaviour::RemoveEmptyAccounts : State::CommitBehaviour::KeepEmptyAccounts);
+
+	LOG(m_loggerDetailed) << "Post-reward stateRoot:" << m_state.rootHash();
+	LOG(m_loggerDetailed) << m_state;
+
+	m_currentBlock.setLogBloom(logBloom());
+	m_currentBlock.setGasUsed(gasUsed());
+	m_currentBlock.setRoots(hash256(transactionsMap), hash256(receiptsMap), sha3(m_currentUncles), m_state.rootHash());
+
+	m_currentBlock.setParentHash(m_previousBlock.hash());
+	m_currentBlock.setBlockType(BlockType::EvidenceBlock);
+	m_currentBlock.setExtraData(_extraData);
+	if (m_currentBlock.extraData().size() > 32)
+	{
+		auto ed = m_currentBlock.extraData();
+		ed.resize(32);
+		m_currentBlock.setExtraData(ed);
+	}
+	//LOG(m_loggerDetailed) << m_currentBlock;
+
+	m_committedToSeal = true;
 }
 
 void Block::uncommitToSeal()

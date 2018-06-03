@@ -102,6 +102,8 @@ public:
 	u256 durationLimit;
 	bool allowFutureBlocks = false;
 
+	double sealTypeThreshold = 0.5;
+
 	/// Precompiled contracts as specified in the chain params.
 	std::unordered_map<Address, PrecompiledContract> precompiled;
 };

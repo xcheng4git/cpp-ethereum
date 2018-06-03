@@ -29,6 +29,11 @@ namespace dev
 namespace eth
 {
 
+		struct EvidenceStruct {
+			byte* buffer;
+			size_t size;
+		};
+
 struct EVMSchedule;
 
 /// Named-boolean type to encode whether a signature be included in the serialisation process.
@@ -101,6 +106,11 @@ public:
 	/// @returns true if transaction is contract-creation.
 	bool isCreation() const { return m_type == ContractCreation; }
 
+	bool isEvidence() const { return m_type == EvidenceAppend; }
+	/// @returns the signaturestruct associated with this transaction.
+	boost::optional<SignatureStruct> const& updateEvidence(Secret const& _priv);
+	void md5(byte* _buffer, size_t _len, char* _md5);
+
 	/// Serialises this transaction to an RLPStream.
 	/// @throws TransactionIsUnsigned if including signature was requested but it was not initialized
 	void streamRLP(RLPStream& _s, IncludeSignature _sig = WithSignature, bool _forEip155hash = false) const;
@@ -165,7 +175,8 @@ protected:
 	{
 		NullTransaction,				///< Null transaction.
 		ContractCreation,				///< Transaction to create contracts - receiveAddress() is ignored.
-		MessageCall						///< Transaction to invoke a message call - receiveAddress() is used.
+		MessageCall,					///< Transaction to invoke a message call - receiveAddress() is used.
+		EvidenceAppend					///< Transaction to append evidence - receiveAddress() is used and the address is the contract address of thingRegister
 	};
 
 	static bool isZeroSignature(u256 const& _r, u256 const& _s) { return !_r && !_s; }
@@ -185,6 +196,11 @@ protected:
 
 	mutable h256 m_hashWith;			///< Cached hash of transaction with signature.
 	mutable Address m_sender;			///< Cached sender, determined from signature.
+
+	mutable h256 m_hash4Evidence;		///< Cached hash of evidence
+
+	struct EvidenceStruct m_evidence;
+	
 };
 
 /// Nice name for vector of Transaction.
@@ -203,6 +219,7 @@ inline std::ostream& operator<<(std::ostream& _out, TransactionBase const& _t)
 	_out << "<-" << _t.safeSender().abridged() << " #" << _t.nonce() << "}";
 	return _out;
 }
+		size_t WriteEvidenceCallback(void *contents, size_t size, size_t nmemb, void *userp);
 
 }
 }

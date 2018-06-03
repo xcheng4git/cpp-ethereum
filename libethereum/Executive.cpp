@@ -221,7 +221,10 @@ void Executive::initialize(Transaction const& _transaction)
         u256 nonceReq;
         try
         {
-            nonceReq = m_s.getNonce(m_t.sender());
+			if (m_t.isEvidence())
+				nonceReq = m_s.getNonce4Evidence(m_t.sender());
+			else
+				nonceReq = m_s.getNonce(m_t.sender());
         }
         catch (InvalidSignature const&)
         {
@@ -263,7 +266,9 @@ bool Executive::execute()
     m_s.subBalance(m_t.sender(), m_gasCost);
 
     assert(m_t.gas() >= (u256)m_baseGasRequired);
-    if (m_t.isCreation())
+	if (m_t.isEvidence())
+		return evidence(m_t.receiveAddress(), m_t.sender(), m_t.value(), m_t.gasPrice(), bytesConstRef(&m_t.data()), m_t.gas() - (u256)m_baseGasRequired);
+	else if (m_t.isCreation())
         return create(m_t.sender(), m_t.value(), m_t.gasPrice(), m_t.gas() - (u256)m_baseGasRequired, &m_t.data(), m_t.sender());
     else
         return call(m_t.receiveAddress(), m_t.sender(), m_t.value(), m_t.gasPrice(), bytesConstRef(&m_t.data()), m_t.gas() - (u256)m_baseGasRequired);
@@ -390,7 +395,7 @@ bool Executive::executeCreate(Address const& _sender, u256 const& _endowment, u2
     u256 newNonce = m_s.requireAccountStartNonce();
     if (m_envInfo.number() >= m_sealEngine.chainParams().EIP158ForkBlock)
         newNonce += 1;
-    m_s.setNonce(m_newAddress, newNonce);
+    m_s.setNonce(m_newAddress, newNonce, m_s.requireAccountStartNonce());
 
     // Schedule _init execution if not empty.
     if (!_init.empty())
@@ -398,6 +403,84 @@ bool Executive::executeCreate(Address const& _sender, u256 const& _endowment, u2
             _endowment, _gasPrice, bytesConstRef(), _init, sha3(_init), m_depth, true, false);
 
     return !m_ext;
+}
+
+bool Executive::evidence(Address const& _receiveAddress, Address const& _senderAddress, u256 const& _value, u256 const& _gasPrice, bytesConstRef _data, u256 const& _gas)
+{
+	CallParameters params{ _senderAddress, _receiveAddress, _receiveAddress, _value, _value, _gas, _data,{} };
+	return evidence(params, _gasPrice, _senderAddress);
+}
+
+#ifdef UNUSED
+#elif defined(__GNUC__)
+# define UNUSED(x) UNUSED_ ## x __attribute__((unused))
+#elif defined(__LCLINT__)
+# define UNUSED(x) /*@unused@*/ x
+#else
+# define UNUSED(x) x
+#endif
+bool Executive::evidence(CallParameters const& _p, u256 const& UNUSED(_gasPrice), Address const& UNUSED(_origin))
+{
+	// If external transaction.
+	if (m_t)
+	{
+		// FIXME: changelog contains unrevertable balance change that paid
+		//        for the transaction.
+		// Increment associated nonce for sender.
+		if (_p.senderAddress != MaxAddress || m_envInfo.number() < m_sealEngine.chainParams().constantinopleForkBlock) // EIP86
+			m_s.incNonce4Evidence(_p.senderAddress);
+	}
+
+	m_savepoint = m_s.savepoint();
+
+	if (m_sealEngine.isPrecompiled(_p.codeAddress, m_envInfo.number()))
+	{
+		bigint g = m_sealEngine.costOfPrecompiled(_p.codeAddress, _p.data, m_envInfo.number());
+		if (_p.gas < g)
+		{
+			m_excepted = TransactionException::OutOfGasBase;
+			// Bail from exception.
+
+			// Empty precompiled contracts need to be deleted even in case of OOG
+			// because the bug in both Geth and Parity led to deleting RIPEMD precompiled in this case
+			// see https://github.com/ethereum/go-ethereum/pull/3341/files#diff-2433aa143ee4772026454b8abd76b9dd
+			// We mark the account as touched here, so that is can be removed among other touched empty accounts (after tx finalization)
+			if (m_envInfo.number() >= m_sealEngine.chainParams().EIP158ForkBlock)
+				m_s.addBalance(_p.codeAddress, 0);
+
+			return true;	// true actually means "all finished - nothing more to be done regarding go().
+		}
+		else
+		{
+			m_gas = (u256)(_p.gas - g);
+			bytes output;
+			bool success;
+			tie(success, output) = m_sealEngine.executePrecompiled(_p.codeAddress, _p.data, m_envInfo.number());
+			size_t outputSize = output.size();
+			m_output = owning_bytes_ref{ std::move(output), 0, outputSize };
+			if (!success)
+			{
+				m_gas = 0;
+				m_excepted = TransactionException::OutOfGas;
+				return true;	// true means no need to run go().
+			}
+		}
+	}
+	else
+	{
+		m_gas = _p.gas;
+		if (!m_s.addressHasCode(_p.codeAddress))
+		{
+			//表示_p.codeAddress不存在代码，是一个智能合约地址,如果不是智能合约地址，就无法frozen这个evidence了
+			//这个应该挪到某个verify里面去
+			BOOST_THROW_EXCEPTION(NotContractAddress());
+		}
+
+	}
+
+	// Transfer ether.
+	m_s.transferBalance(_p.senderAddress, _p.receiveAddress, _p.valueTransfer);
+	return !m_ext;
 }
 
 OnOpFunc Executive::simpleTrace()

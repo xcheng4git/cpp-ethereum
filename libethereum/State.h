@@ -115,7 +115,10 @@ struct Change
         Code,
 
         /// Account was touched for the first time.
-        Touch
+		Touch,
+
+		/// Account nonce4Evidence was changed
+		Nonce4Evidence
     };
 
     Kind kind;        ///< The kind of the change.
@@ -145,6 +148,11 @@ struct Change
     Change(Address const& _addr, bytes const& _oldCode):
             kind(Code), address(_addr), oldCode(_oldCode)
     {}
+
+    /// Helper constructor for nonce change log.
+    Change(Address const& _addr, u256 const& _value, bool evidence):
+            kind(Nonce4Evidence), address(_addr), value(_value)
+    { evidence = evidence;}    
 };
 
 using ChangeLog = std::vector<Change>;
@@ -299,13 +307,15 @@ public:
 
     /// Increament the account nonce.
     void incNonce(Address const& _id);
+	void incNonce4Evidence(Address const& _id);
 
     /// Set the account nonce.
-    void setNonce(Address const& _addr, u256 const& _newNonce);
+	void setNonce(Address const& _addr, u256 const& _newNonce, u256 const& _newNonce4Evidence);
 
     /// Get the account nonce -- the number of transactions it has sent.
     /// @returns 0 if the address has never been used.
     u256 getNonce(Address const& _addr) const;
+	u256 getNonce4Evidence(Address const& _addr) const;
 
     /// The hash of the root of our state tree.
     h256 rootHash() const { return m_state.root(); }

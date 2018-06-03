@@ -34,6 +34,11 @@ set(sources
     Web3.h
     Web3Face.h
     WhisperFace.h
+    Thing.cpp
+    Thing.h
+    ThingFace.h
+    SafeHttpServer.cpp
+    SafeHttpServer.h
 )
 
 if(WIN32)
@@ -85,4 +90,6 @@ jsonrpcstub_create(web3jsonrpc test.json
     TestClient ${CMAKE_CURRENT_BINARY_DIR} TestClient
 )
 
-target_link_libraries(web3jsonrpc ethashseal webthree libjson-rpc-cpp::server)
+#target_link_libraries(web3jsonrpc ethashseal webthree libjson-rpc-cpp::server ${MHD_LIBRARY} ${JSON_RPC_CPP_LIBRARIES})
+target_link_libraries(web3jsonrpc 
+PRIVATE  ethashseal webthree ${MHD_LIBRARY} ${JSON_RPC_CPP_LIBRARIES})

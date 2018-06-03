@@ -53,6 +53,7 @@ BlockHeader::BlockHeader(BlockHeader const& _other) :
     m_number(_other.number()),
     m_gasLimit(_other.gasLimit()),
     m_gasUsed(_other.gasUsed()),
+   	m_blockType(_other.blockType()),
     m_extraData(_other.extraData()),
     m_timestamp(_other.timestamp()),
     m_author(_other.author()),
@@ -77,6 +78,7 @@ BlockHeader& BlockHeader::operator=(BlockHeader const& _other)
     m_number = _other.number();
     m_gasLimit = _other.gasLimit();
     m_gasUsed = _other.gasUsed();
+	m_blockType = _other.blockType();
     m_extraData = _other.extraData();
     m_timestamp = _other.timestamp();
     m_author = _other.author();
@@ -111,6 +113,7 @@ void BlockHeader::clear()
     m_gasLimit = 0;
     m_gasUsed = 0;
     m_timestamp = -1;
+   	m_blockType = BlockType::TransactionBlock;
     m_extraData.clear();
     m_seal.clear();
     noteDirty();
@@ -133,7 +136,7 @@ h256 BlockHeader::hash(IncludeSeal _i) const
 void BlockHeader::streamRLPFields(RLPStream& _s) const
 {
     _s	<< m_parentHash << m_sha3Uncles << m_author << m_stateRoot << m_transactionsRoot << m_receiptsRoot << m_logBloom
-        << m_difficulty << m_number << m_gasLimit << m_gasUsed << m_timestamp << m_extraData;
+		<< m_difficulty << m_number << m_gasLimit << m_gasUsed << m_timestamp << m_blockType << m_extraData;
 }
 
 void BlockHeader::streamRLP(RLPStream& _s, IncludeSeal _i) const
@@ -185,9 +188,10 @@ void BlockHeader::populate(RLP const& _header)
         m_gasLimit = _header[field = 9].toInt<u256>();
         m_gasUsed = _header[field = 10].toInt<u256>();
         m_timestamp = _header[field = 11].toPositiveInt64();
-        m_extraData = _header[field = 12].toBytes();
+		m_blockType = (BlockType)_header[field = 12].toInt();
+		m_extraData = _header[field = 13].toBytes();
         m_seal.clear();
-        for (unsigned i = 13; i < _header.itemCount(); ++i)
+        for (unsigned i = 14; i < _header.itemCount(); ++i)
             m_seal.push_back(_header[i].data().toBytes());
     }
     catch (Exception const& _e)
@@ -204,6 +208,8 @@ void BlockHeader::populateFromParent(BlockHeader const& _parent)
     m_parentHash = _parent.m_hash;
     m_gasLimit = _parent.m_gasLimit;
     m_difficulty = _parent.m_difficulty;
+   	m_blockType = _parent.m_blockType;
+
     m_gasUsed = 0;
 }
 

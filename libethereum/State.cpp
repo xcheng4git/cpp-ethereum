@@ -183,7 +183,7 @@ Account* State::account(Address const& _addr)
     auto i = m_cache.emplace(
         std::piecewise_construct,
         std::forward_as_tuple(_addr),
-        std::forward_as_tuple(state[0].toInt<u256>(), state[1].toInt<u256>(), state[2].toHash<h256>(), state[3].toHash<h256>(), Account::Unchanged)
+        std::forward_as_tuple(state[0].toInt<u256>(), state[1].toInt<u256>(), state[2].toInt<u256>(), state[3].toHash<h256>(), state[4].toHash<h256>(), Account::Unchanged)
     );
     m_unchangedCacheEntries.push_back(_addr);
     return &i.first->second;
@@ -335,20 +335,38 @@ void State::incNonce(Address const& _addr)
     }
     else
         // This is possible if a transaction has gas price 0.
-        createAccount(_addr, Account(requireAccountStartNonce() + 1, 0));
+        createAccount(_addr, Account(requireAccountStartNonce() + 1, requireAccountStartNonce() + 1, 0));
 }
 
-void State::setNonce(Address const& _addr, u256 const& _newNonce)
+void State::incNonce4Evidence(Address const& _addr)
+{
+	if (Account* a = account(_addr))
+	{
+		auto oldNonce = a->nonce4Evidence();
+		a->incNonce4Evidence();
+		m_changeLog.emplace_back(_addr, oldNonce);
+	}
+	else
+		// This is possible if a transaction has gas price 0.
+		createAccount(_addr, Account(requireAccountStartNonce() + 1, requireAccountStartNonce() + 1, 0));
+}
+
+
+void State::setNonce(Address const& _addr, u256 const& _newNonce, u256 const& _newNonce4Evidence)
 {
     if (Account* a = account(_addr))
     {
         auto oldNonce = a->nonce();
         a->setNonce(_newNonce);
         m_changeLog.emplace_back(_addr, oldNonce);
+
+		auto oldNonce4Evidence = a->nonce4Evidence();
+		a->setNonce4Evidence(_newNonce4Evidence);
+		m_changeLog.emplace_back(_addr, oldNonce4Evidence, true);
     }
     else
         // This is possible when a contract is being created.
-        createAccount(_addr, Account(_newNonce, 0));
+        createAccount(_addr, Account(_newNonce, 0, 0));
 }
 
 void State::addBalance(Address const& _id, u256 const& _amount)
@@ -370,7 +388,8 @@ void State::addBalance(Address const& _id, u256 const& _amount)
         a->addBalance(_amount);
     }
     else
-        createAccount(_id, {requireAccountStartNonce(), _amount});
+        createAccount(_id, {requireAccountStartNonce(), requireAccountStartNonce(), _amount});
+
 
     if (_amount)
         m_changeLog.emplace_back(Change::Balance, _id, _amount);
@@ -401,7 +420,7 @@ void State::setBalance(Address const& _addr, u256 const& _value)
 
 void State::createContract(Address const& _address)
 {
-    createAccount(_address, {requireAccountStartNonce(), 0});
+    createAccount(_address, {requireAccountStartNonce(), requireAccountStartNonce(), 0});
 }
 
 void State::createAccount(Address const& _address, Account const&& _account)
@@ -425,6 +444,14 @@ u256 State::getNonce(Address const& _addr) const
         return a->nonce();
     else
         return m_accountStartNonce;
+}
+
+u256 State::getNonce4Evidence(Address const& _addr) const
+{
+	if (auto a = account(_addr))
+		return a->nonce4Evidence();
+	else
+		return m_accountStartNonce;
 }
 
 u256 State::storage(Address const& _id, u256 const& _key) const
@@ -596,6 +623,9 @@ void State::rollback(size_t _savepoint)
             account.untouch();
             m_unchangedCacheEntries.emplace_back(change.address);
             break;
+        case Change::Nonce4Evidence:
+            account.setNonce4Evidence(change.value);
+            break;
         }
         m_changeLog.pop_back();
     }
@@ -675,12 +705,12 @@ std::ostream& dev::eth::operator<<(std::ostream& _out, State const& _s)
         else
         {
             string lead = (cache ? r ? " *   " : " +   " : "     ");
-            if (cache && r && cache->nonce() == r[0].toInt<u256>() && cache->balance() == r[1].toInt<u256>())
+            if (cache && r && cache->nonce() == r[0].toInt<u256>() && cache->balance() == r[2].toInt<u256>())
                 lead = " .   ";
 
             stringstream contout;
 
-            if ((cache && cache->codeHash() == EmptySHA3) || (!cache && r && (h256)r[3] != EmptySHA3))
+            if ((cache && cache->codeHash() == EmptySHA3) || (!cache && r && (h256)r[4] != EmptySHA3))
             {
                 std::map<u256, u256> mem;
                 std::set<u256> back;
@@ -688,7 +718,7 @@ std::ostream& dev::eth::operator<<(std::ostream& _out, State const& _s)
                 std::set<u256> cached;
                 if (r)
                 {
-                    SecureTrieDB<h256, OverlayDB> memdb(const_cast<OverlayDB*>(&_s.m_db), r[2].toHash<h256>());     // promise we won't alter the overlay! :)
+                    SecureTrieDB<h256, OverlayDB> memdb(const_cast<OverlayDB*>(&_s.m_db), r[3].toHash<h256>());     // promise we won't alter the overlay! :)
                     for (auto const& j: memdb)
                         mem[j.first] = RLP(j.second).toInt<u256>(), back.insert(j.first);
                 }
@@ -707,11 +737,11 @@ std::ostream& dev::eth::operator<<(std::ostream& _out, State const& _s)
                 if (!delta.empty())
                     contout << "???";
                 else
-                    contout << r[2].toHash<h256>();
+                    contout << r[3].toHash<h256>();
                 if (cache && cache->hasNewCode())
                     contout << " $" << toHex(cache->code());
                 else
-                    contout << " $" << (cache ? cache->codeHash() : r[3].toHash<h256>());
+                    contout << " $" << (cache ? cache->codeHash() : r[4].toHash<h256>());
 
                 for (auto const& j: mem)
                     if (j.second)
@@ -721,7 +751,7 @@ std::ostream& dev::eth::operator<<(std::ostream& _out, State const& _s)
             }
             else
                 contout << " [SIMPLE]";
-            _out << lead << i << ": " << std::dec << (cache ? cache->nonce() : r[0].toInt<u256>()) << " #:" << (cache ? cache->balance() : r[1].toInt<u256>()) << contout.str() << std::endl;
+            _out << lead << i << ": " << std::dec << (cache ? cache->nonce() : r[0].toInt<u256>()) << " #:" << (cache ? cache->balance() : r[2].toInt<u256>()) << contout.str() << std::endl;
         }
     }
     return _out;
@@ -752,8 +782,8 @@ AddressHash dev::eth::commit(AccountMap const& _cache, SecureTrieDB<Address, DB>
                 _state.remove(i.first);
             else
             {
-                RLPStream s(4);
-                s << i.second.nonce() << i.second.balance();
+                RLPStream s(5);
+                s << i.second.nonce() << i.second.nonce4Evidence() << i.second.balance();
 
                 if (i.second.storageOverlay().empty())
                 {

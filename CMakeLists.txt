@@ -96,14 +96,15 @@ find_package(Snappy CONFIG REQUIRED)
 hunter_add_package(cryptopp)
 find_package(cryptopp CONFIG REQUIRED)
 
-hunter_add_package(libjson-rpc-cpp)
-find_package(libjson-rpc-cpp CONFIG REQUIRED)
+#hunter_add_package(libjson-rpc-cpp)
+#find_package(libjson-rpc-cpp CONFIG REQUIRED)
 
 hunter_add_package(libscrypt)
 find_package(libscrypt CONFIG REQUIRED)
 
 hunter_add_package(ethash)
 find_package(ethash CONFIG REQUIRED)
+
 
 include(ProjectSecp256k1)
 include(ProjectLibFF)
@@ -112,6 +113,16 @@ include(ProjectLibFF)
 include(hera/cmake/ProjectBinaryen.cmake)
 
 find_package(Threads)
+
+find_package(CURL REQUIRED)
+
+find_package(MHD REQUIRED) 
+message(" - microhttpd header: ${MHD_INCLUDE_DIRS}")
+message(" - microhttpd lib   : ${MHD_LIBRARIES}")
+
+find_package (json_rpc_cpp REQUIRED)
+message (" - json-rpc-cpp header: ${JSON_RPC_CPP_INCLUDE_DIRS}")
+message (" - json-rpc-cpp lib   : ${JSON_RPC_CPP_LIBRARIES}")
 
 if(MINIUPNPC)
     find_package(Miniupnpc 1.8.2013 REQUIRED)
@@ -141,6 +152,8 @@ add_subdirectory(libethashseal)
 
 add_subdirectory(libwebthree)
 add_subdirectory(libweb3jsonrpc)
+
+add_subdirectory(utils)
 
 if (EVMJIT)
     add_subdirectory(evmjit)
