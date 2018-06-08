@@ -4,12 +4,26 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+
         {
             "name": "(gdb) Launch",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/aleth/aleth",
-            "args": [],
+            "args": [
+                "--private", "xenet",
+                "--db-path", "/home/shawn/Develop/xenode/.xenet",
+                "--config", "/home/shawn/Develop/xenode/config.json",
+                "--json-rpc", 
+                "--ipc", 
+                "--mining", "off",
+                "--cpu", 
+                "--mining-threads", "1", 
+                "-v", "18",
+                "--unsafe-transactions",
+                "-a", "0x862d8b3264aBb022131a4443ad83697c1C1A17BB", 
+                "--listen", "7553"],
+            //"args":[],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/",
             "environment": [],
