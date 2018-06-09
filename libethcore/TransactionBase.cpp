@@ -27,6 +27,9 @@
 #include "EVMSchedule.h"
 #include <utils/zmd5.h>
 #include <curl/curl.h>
+#include <signal.h>
+#include <setjmp.h>
+#include <unistd.h>
 
 using namespace std;
 using namespace dev;
@@ -47,6 +50,8 @@ TransactionBase::TransactionBase(TransactionSkeleton const& _ts, Secret const& _
 	
 	if (_s)
 		sign(_s);
+	
+	m_evidence.buffer = NULL; m_evidence.size = 0;
 }
 
 TransactionBase::TransactionBase(bytesConstRef _rlpData, CheckTransaction _checkSig)
@@ -112,6 +117,8 @@ TransactionBase::TransactionBase(bytesConstRef _rlpData, CheckTransaction _check
 		_e << errinfo_name("invalid transaction format: " + toString(rlp) + " RLP: " + toHex(rlp.data()));
 		throw;
 	}
+
+	m_evidence.buffer = NULL; m_evidence.size = 0;
 }
 
 Address const& TransactionBase::safeSender() const noexcept
@@ -249,21 +256,13 @@ h256 TransactionBase::sha3(IncludeSignature _sig) const
 	return ret;
 }
 
-#if 1
-#ifdef UNUSED
-#elif defined(__GNUC__)
-# define UNUSED(x) UNUSED_ ## x __attribute__((unused))
-#elif defined(__LCLINT__)
-# define UNUSED(x) /*@unused@*/ x
-#else
-# define UNUSED(x) x
-#endif
-boost::optional<SignatureStruct> const& dev::eth::TransactionBase::updateEvidence(Secret const& UNUSED(_priv))
+boost::optional<SignatureStruct> const& dev::eth::TransactionBase::updateEvidence()
 {
-
+	//ctrace << "evidence size " << m_evidence.size;
 	//curl for image
-	if (m_evidence.size < 1)
+	if (m_evidence.size < 0x7ff)
 	{
+		m_evidence.size = 0;
 		CURL *curl_;
 		CURLcode res_;
 		std::string url_;
@@ -290,11 +289,6 @@ boost::optional<SignatureStruct> const& dev::eth::TransactionBase::updateEvidenc
 		}
 		curl_easy_cleanup(curl_);
 
-#if 0
-		FILE* fp = fopen("d:\\evidence.jpg", "wb");
-		fwrite(m_evidence.buffer, 1, m_evidence.size, fp);
-		fclose(fp);
-#endif
 #if 1
 		//接下来应该验证MD5
 		char md5sum[33];
@@ -305,14 +299,7 @@ boost::optional<SignatureStruct> const& dev::eth::TransactionBase::updateEvidenc
 			BOOST_THROW_EXCEPTION(GetEvidenceFromUrlFailed());
 #endif
 	}
-#if 0
-	if (m_evidence.size > 2) {
-		if ((m_evidence.buffer[0] == 52) && (m_evidence.buffer[1] == 48))
-			BOOST_THROW_EXCEPTION(GetEvidenceFromUrlFailed());
-	}
-	else
-		BOOST_THROW_EXCEPTION(GetEvidenceFromUrlFailed());
-#endif
+	//ctrace << "evidence size " << m_evidence.size;
 
 	m_data.clear();
 	m_data.reserve(m_evidence.size);
@@ -320,7 +307,8 @@ boost::optional<SignatureStruct> const& dev::eth::TransactionBase::updateEvidenc
 	{
 		m_data.push_back((byte)m_evidence.buffer[i]);
 	}
-
+	free(m_evidence.buffer); m_evidence.size = 0;
+	
 	//m_hash4Evidence = sha3(WithoutSignature);
 	//cnote << "hash 4 evidence is " << toString(m_hash4Evidence);
 	//cnote << "m_vrs is " << toString(m_vrs->r) << toString(m_vrs->s) << toString(m_vrs->v);
@@ -357,17 +345,90 @@ size_t dev::eth::WriteEvidenceCallback(void *contents, size_t size, size_t nmemb
 	size_t realsize = size * nmemb;
 	struct EvidenceStruct *mem = (struct EvidenceStruct *)userp;
 
+	/*
 	mem->buffer = (byte*)realloc(mem->buffer, mem->size + realsize + 1);
 	if (mem->buffer == NULL) {
+		// out of memory! 
+		ctrace << "Not enough memory (realloc returned NULL) for writing evidence back.";
+		return 0;
+	}
+	*/	
+	byte* pBuffer;
+	pBuffer = (byte*)malloc(mem->size + realsize + 1);
+	if (pBuffer == NULL) {
 		/* out of memory! */
 		ctrace << "Not enough memory (realloc returned NULL) for writing evidence back.";
 		return 0;
 	}
+	if (mem->size > 0) {
+		if (!isbadreadptr(mem->buffer, mem->size)) {
+			memcpy(pBuffer, mem->buffer, mem->size);
+			free(mem->buffer);
+			//mem->size = 0;
+		}
+	}
+	mem->buffer = pBuffer;
 
+	///
 	memcpy(&(mem->buffer[mem->size]), contents, realsize);
 	mem->size += realsize;
 	mem->buffer[mem->size] = 0;
 
 	return realsize;
 }
-#endif
+
+#define ERROR_SIGNAL SIGSEGV 
+static sigjmp_buf badreadjmpbuf;  
+
+void dev::eth::badreadfunc(int signo)  
+{  
+    /*write(STDOUT_FILENO, "catch\n", 6);*/  
+    siglongjmp(badreadjmpbuf, 1);  
+	signo = signo;
+}  
+struct ret{
+	int ret;
+};
+int dev::eth::isbadreadptr(void *ptr, int length)  
+{  
+    struct sigaction sa, osa;  
+    struct ret ret;
+	
+	ret.ret = 0;  
+    /*init new handler struct*/  
+    sa.sa_handler = badreadfunc;  
+    sigemptyset(&sa.sa_mask);  
+    sa.sa_flags = 0;  
+  
+    /*retrieve old and set new handlers*/  
+    if(sigaction(ERROR_SIGNAL, &sa, &osa)<0)  
+        return (-1);  
+  
+    if(sigsetjmp(badreadjmpbuf, 1) == 0)  
+    {  
+        int i, hi=length/sizeof(int), remain=length%sizeof(int);  
+        int* pi = (int*)ptr;  
+        char* pc = (char*)ptr + hi;  
+        for(i=0;i<hi;i++)  
+        {  
+            int tmp = *(pi+i);  
+			tmp = tmp;
+        }  
+        for(i=0;i<remain;i++)  
+        {  
+            char tmp = *(pc+i);  
+			tmp = tmp;
+        }  
+  
+    }  
+    else  
+    {  
+        ret.ret = 1;  
+    }  
+  
+    /*restore prevouis signal actions*/  
+    if(sigaction(ERROR_SIGNAL, &osa, NULL)<0)  
+        return (-1);  
+  
+    return ret.ret;  
+}  

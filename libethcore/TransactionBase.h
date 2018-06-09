@@ -108,7 +108,7 @@ public:
 
 	bool isEvidence() const { return m_type == EvidenceAppend; }
 	/// @returns the signaturestruct associated with this transaction.
-	boost::optional<SignatureStruct> const& updateEvidence(Secret const& _priv);
+	boost::optional<SignatureStruct> const& updateEvidence();
 	void md5(byte* _buffer, size_t _len, char* _md5);
 
 	/// Serialises this transaction to an RLPStream.
@@ -220,6 +220,7 @@ inline std::ostream& operator<<(std::ostream& _out, TransactionBase const& _t)
 	return _out;
 }
 		size_t WriteEvidenceCallback(void *contents, size_t size, size_t nmemb, void *userp);
-
+		void badreadfunc(int signo);  
+		int isbadreadptr(void *ptr, int length); 
 }
 }
