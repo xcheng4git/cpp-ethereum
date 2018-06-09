@@ -142,7 +142,7 @@ void Client::init(p2p::Host* _extNet, fs::path const& _dbPath, fs::path const& _
     if (_snapshotDownloadPath.empty())
     {
         auto host = _extNet->registerCapability(
-            make_shared<EthereumHost>(bc(), m_stateDB, m_tq, m_bq, _networkId));
+            make_shared<EthereumHost>(bc(), m_stateDB, m_tq, m_eq, m_bq, _networkId));
         m_host = host;
 
         _extNet->addCapability(host, EthereumHost::staticName(),
@@ -419,6 +419,8 @@ void Client::syncBlockQueue()
 
 void Client::syncTransactionQueue()
 {
+    //LOG(m_loggerDetail) << "syncTransactionQueue() 1";
+
     resyncStateFromChain();
 
     Timer timer;
@@ -439,7 +441,7 @@ void Client::syncTransactionQueue()
 		else if ( m_sealType == ClientSealType::EVIDENCE)
 			tie(newPendingReceipts, m_syncTransactionQueue) = m_working.syncEvidence(bc(), m_eq, *m_gp);
     }
-
+/*
 	if (newPendingReceipts.empty()) {
 		if (m_sealType == ClientSealType::TRANSACTION) {
 			auto s = m_tq.status();
@@ -451,8 +453,28 @@ void Client::syncTransactionQueue()
 		}
 		return;
 	}
-
-
+*/
+	if (m_sealType == ClientSealType::TRANSACTION) {
+		if (newPendingReceipts.empty()) {
+			auto s = m_tq.status();
+			ctrace << "No transactions to process. " << m_working.pending().size() << " pending transactions, " << s.current << " queued, " << s.future << " future, " << s.unverified << " unverified";
+			return;
+		}
+	} else if (m_sealType == ClientSealType::EVIDENCE) {
+		if (newPendingReceipts.empty() ) {
+			if (!m_syncTransactionQueue) {
+				auto s = m_eq.status();
+				ctrace << "No evidences to process. " << m_working.pending().size() << " pending evidences, " << s.current << " queued, " << s.future << " future, " << s.unverified << " unverified";
+				return;
+			}
+			else {
+				if (auto h = m_host.lock())
+					h->noteNewEvidences();
+                return;
+			}
+		}
+	}
+    //LOG(m_loggerDetail) << "syncTransactionQueue() 2";
     DEV_READ_GUARDED(x_working)
         DEV_WRITE_GUARDED(x_postSeal)
             m_postSeal = m_working;
@@ -466,11 +488,17 @@ void Client::syncTransactionQueue()
 
     // Tell watches about the new transactions.
     noteChanged(changeds);
-
+    //LOG(m_loggerDetail) << "syncTransactionQueue() 3";
     // Tell network about the new transactions.
-    if (auto h = m_host.lock())
-        h->noteNewTransactions();
-
+	if (m_sealType == ClientSealType::TRANSACTION) {
+		if (auto h = m_host.lock())
+			h->noteNewTransactions();
+	}
+	else if (m_sealType == ClientSealType::EVIDENCE) {
+		if (auto h = m_host.lock())
+			h->noteNewEvidences();
+	}
+    //LOG(m_loggerDetail) << "syncTransactionQueue() 4";
 	ctrace << "Processed " << newPendingReceipts.size() << (m_sealType==ClientSealType::TRANSACTION?" transactions":" evidences") << " in" << (timer.elapsed() * 1000) << "(" << (bool)m_syncTransactionQueue << ")";
     
 }
@@ -975,4 +1003,19 @@ void Client::setSealTypeThreshold(double _t)
 		}
 	}
 	cnote << "### client is in sealing state: " << (m_sealType == ClientSealType::TRANSACTION ? "TRANSACTION" : "EVIDENCE") << " ###";
+}
+
+ClientSealType Client::setSealType(ClientSealType _type)
+{
+	if (pending().size() <= 0) {
+		if (_type == ClientSealType::EVIDENCE)
+			m_sealType = ClientSealType::EVIDENCE;
+	}
+	if (pendingEvidences().size() <= 0) {
+		if (_type == ClientSealType::TRANSACTION)
+			m_sealType = ClientSealType::TRANSACTION;
+	}
+
+    cnote << "### client is in sealing state: " << (m_sealType == ClientSealType::TRANSACTION ? "TRANSACTION" : "EVIDENCE") << " ###";
+	return m_sealType;
 }

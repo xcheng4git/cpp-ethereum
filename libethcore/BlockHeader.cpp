@@ -40,6 +40,7 @@ BlockHeader::BlockHeader(bytesConstRef _block, BlockDataType _bdt, h256 const& _
 {
     RLP header = _bdt == BlockData ? extractHeader(_block) : RLP(_block);
     m_hash = _hashWith ? _hashWith : sha3(header.data());
+    //LOG(m_logger) << "BlockHeader: " << toString(header.data()) << " :: hash :: " << toString(m_hash);
     populate(header);
 }
 
@@ -128,6 +129,8 @@ h256 BlockHeader::hash(IncludeSeal _i) const
     {
         RLPStream s;
         streamRLP(s, _i);
+
+        //LOG(m_logger) << "BlockHeader: " << toString(s.out()) << " :: hash :: " << toString(m_hash);
         memo = sha3(s.out());
     }
     return memo;

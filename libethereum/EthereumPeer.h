@@ -46,6 +46,8 @@ public:
 
 	virtual void onPeerTransactions(std::shared_ptr<EthereumPeer> _peer, RLP const& _r) = 0;
 
+	virtual void onPeerEvidences(std::shared_ptr<EthereumPeer> _peer, RLP const& _r) = 0;
+
 	virtual void onPeerBlockHeaders(std::shared_ptr<EthereumPeer> _peer, RLP const& _headers) = 0;
 
 	virtual void onPeerBlockBodies(std::shared_ptr<EthereumPeer> _peer, RLP const& _r) = 0;

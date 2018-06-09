@@ -222,7 +222,9 @@ public:
 
 	///
 	void setSealTypeThreshold(double _t);
-
+    ClientSealType getSealType() { return m_sealType; }
+    ClientSealType setSealType(ClientSealType _type);
+    
 protected:
     /// Perform critical setup functions.
     /// Must be called in the constructor of the finally derived class.

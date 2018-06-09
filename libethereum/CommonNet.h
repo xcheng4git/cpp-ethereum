@@ -59,6 +59,7 @@ enum SubprotocolPacketType: byte
     GetBlockBodiesPacket = 0x05,
     BlockBodiesPacket = 0x06,
     NewBlockPacket = 0x07,
+    EvidencesPacket = 0x08,
 
     GetNodeDataPacket = 0x0d,
     NodeDataPacket = 0x0e,

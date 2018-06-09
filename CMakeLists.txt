@@ -120,9 +120,9 @@ find_package(MHD REQUIRED)
 message(" - microhttpd header: ${MHD_INCLUDE_DIRS}")
 message(" - microhttpd lib   : ${MHD_LIBRARIES}")
 
-find_package (json_rpc_cpp REQUIRED)
-message (" - json-rpc-cpp header: ${JSON_RPC_CPP_INCLUDE_DIRS}")
-message (" - json-rpc-cpp lib   : ${JSON_RPC_CPP_LIBRARIES}")
+#find_package (json_rpc_cpp REQUIRED)
+#message (" - json-rpc-cpp header: ${JSON_RPC_CPP_INCLUDE_DIRS}")
+#message (" - json-rpc-cpp lib   : ${JSON_RPC_CPP_LIBRARIES}")
 
 if(MINIUPNPC)
     find_package(Miniupnpc 1.8.2013 REQUIRED)
@@ -167,10 +167,10 @@ if (TOOLS)
     add_subdirectory(rlp)
 endif()
 
-if (TESTS)
-    enable_testing()
-    add_subdirectory(test)
-endif()
+#if (TESTS)
+#    enable_testing()
+#    add_subdirectory(test)
+#endif()
 
 
 if(WIN32)

@@ -48,7 +48,7 @@ namespace
 class EthereumPeerObserver: public EthereumPeerObserverFace
 {
 public:
-    EthereumPeerObserver(shared_ptr<BlockChainSync> _sync, TransactionQueue& _tq): m_sync(_sync), m_tq(_tq) {}
+    EthereumPeerObserver(shared_ptr<BlockChainSync> _sync, TransactionQueue& _tq, TransactionQueue& _eq): m_sync(_sync), m_tq(_tq), m_eq(_eq) {}
 
     void onPeerStatus(std::shared_ptr<EthereumPeer> _peer) override
     {
@@ -71,6 +71,12 @@ public:
         m_tq.enqueue(_r, _peer->id());
     }
 
+	void onPeerEvidences(std::shared_ptr<EthereumPeer> _peer, RLP const& _r) override
+	{
+		unsigned itemCount = _r.itemCount();
+		LOG(m_logger) << "Evidences (" << dec << itemCount << "entries)";
+		m_eq.enqueue(_r, _peer->id());
+	}
     void onPeerAborting() override
     {
         try
@@ -154,6 +160,7 @@ public:
 private:
     shared_ptr<BlockChainSync> m_sync;
     TransactionQueue& m_tq;
+    TransactionQueue& m_eq;
 
     Logger m_logger{createLogger(VerbosityDebug, "host")};
 };
@@ -367,12 +374,13 @@ private:
 
 }
 
-EthereumHost::EthereumHost(BlockChain const& _ch, OverlayDB const& _db, TransactionQueue& _tq, BlockQueue& _bq, u256 _networkId):
+EthereumHost::EthereumHost(BlockChain const& _ch, OverlayDB const& _db, TransactionQueue& _tq, TransactionQueue& _eq, BlockQueue& _bq, u256 _networkId):
     HostCapability<EthereumPeer>(),
     Worker		("ethsync"),
     m_chain		(_ch),
     m_db(_db),
     m_tq		(_tq),
+    m_eq(_eq),
     m_bq		(_bq),
     m_networkId	(_networkId),
     m_hostData(make_shared<EthereumHostData>(m_chain, m_db))
@@ -380,9 +388,10 @@ EthereumHost::EthereumHost(BlockChain const& _ch, OverlayDB const& _db, Transact
     // TODO: Composition would be better. Left like that to avoid initialization
     //       issues as BlockChainSync accesses other EthereumHost members.
     m_sync.reset(new BlockChainSync(*this));
-    m_peerObserver = make_shared<EthereumPeerObserver>(m_sync, m_tq);
+    m_peerObserver = make_shared<EthereumPeerObserver>(m_sync, m_tq, m_eq);
     m_latestBlockSent = _ch.currentHash();
     m_tq.onImport([this](ImportResult _ir, h256 const& _h, h512 const& _nodeId) { onTransactionImported(_ir, _h, _nodeId); });
+    m_eq.onImport([this](ImportResult _ir, h256 const& _h, h512 const& _nodeId) { onTransactionImported(_ir, _h, _nodeId); });
 }
 
 EthereumHost::~EthereumHost()
@@ -430,6 +439,11 @@ void EthereumHost::doWork()
         {
             m_newTransactions = false;
             maintainTransactions();
+        }
+        if (m_newEvidences)
+        {
+            m_newEvidences = false;
+            maintainEvidences();
         }
         if (m_newBlocks)
         {
@@ -485,6 +499,50 @@ void EthereumHost::maintainTransactions()
         {
             RLPStream ts;
             _p->prep(ts, TransactionsPacket, n).appendRaw(b, n);
+            _p->sealAndSend(ts);
+            LOG(m_logger) << "Sent " << n << " transactions to "
+                          << _p->session()->info().clientVersion;
+        }
+        _p->m_requireTransactions = false;
+        return true;
+    });
+}
+
+void EthereumHost::maintainEvidences()
+{
+    // Send any new transactions.
+    unordered_map<std::shared_ptr<EthereumPeer>, std::vector<size_t>> peerTransactions;
+    auto ts = m_eq.topTransactions(c_maxSendTransactions);
+    {
+        Guard l(x_transactions);
+        for (size_t i = 0; i < ts.size(); ++i)
+        {
+            auto const& t = ts[i];
+            bool unsent = !m_transactionsSent.count(t.sha3());
+            auto peers = get<1>(randomSelection(0, [&](EthereumPeer* p) { return p->m_requireTransactions || (unsent && !p->m_knownTransactions.count(t.sha3())); }));
+            for (auto const& p: peers)
+                peerTransactions[p].push_back(i);
+        }
+        for (auto const& t: ts)
+            m_transactionsSent.insert(t.sha3());
+    }
+    foreachPeer([&](shared_ptr<EthereumPeer> _p)
+    {
+        bytes b;
+        unsigned n = 0;
+        for (auto const& i: peerTransactions[_p])
+        {
+            _p->m_knownTransactions.insert(ts[i].sha3());
+            b += ts[i].rlp();
+            ++n;
+        }
+
+        _p->clearKnownTransactions();
+
+        if (n || _p->m_requireTransactions)
+        {
+            RLPStream ts;
+            _p->prep(ts, EvidencesPacket, n).appendRaw(b, n);
             _p->sealAndSend(ts);
             LOG(m_logger) << "Sent " << n << " transactions to "
                           << _p->session()->info().clientVersion;

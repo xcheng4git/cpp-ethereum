@@ -60,7 +60,7 @@ class EthereumHost: public p2p::HostCapability<EthereumPeer>, Worker
 {
 public:
     /// Start server, but don't listen.
-    EthereumHost(BlockChain const& _ch, OverlayDB const& _db, TransactionQueue& _tq, BlockQueue& _bq, u256 _networkId);
+    EthereumHost(BlockChain const& _ch, OverlayDB const& _db, TransactionQueue& _tq, TransactionQueue& _eq, BlockQueue& _bq, u256 _networkId);
 
     /// Will block on network process events.
     virtual ~EthereumHost();
@@ -77,6 +77,7 @@ public:
     bool isBanned(p2p::NodeID const& _id) const { return !!m_banned.count(_id); }
 
     void noteNewTransactions() { m_newTransactions = true; }
+    void noteNewEvidences() { m_newEvidences = true; }
     void noteNewBlocks() { m_newBlocks = true; }
     void onBlockImported(BlockHeader const& _info) { m_sync->onBlockImported(_info); }
 
@@ -103,6 +104,7 @@ private:
     virtual void doWork() override;
 
     void maintainTransactions();
+    void maintainEvidences();
     void maintainBlocks(h256 const& _currentBlock);
     void onTransactionImported(ImportResult _ir, h256 const& _h, h512 const& _nodeId);
 
@@ -118,6 +120,7 @@ private:
     BlockChain const& m_chain;
     OverlayDB const& m_db;					///< References to DB, needed for some of the Ethereum Protocol responses.
     TransactionQueue& m_tq;					///< Maintains a list of incoming transactions not yet in a block on the blockchain.
+    TransactionQueue& m_eq;
     BlockQueue& m_bq;						///< Maintains a list of incoming blocks not yet on the blockchain (to be imported).
 
     u256 m_networkId;
@@ -128,6 +131,7 @@ private:
     std::unordered_set<p2p::NodeID> m_banned;
 
     bool m_newTransactions = false;
+    bool m_newEvidences = false;
     bool m_newBlocks = false;
 
     mutable Mutex x_transactions;

@@ -414,6 +414,7 @@ pair<TransactionReceipts, bool> Block::sync(BlockChain const& _bc, TransactionQu
 
 pair<TransactionReceipts, bool> Block::syncEvidence(BlockChain const& _bc, TransactionQueue& _eq, GasPricer const& _gp, unsigned msTimeout)
 {
+    //LOG(m_logger) << "syncEvidence() 1";
 	if (isSealed())
 		BOOST_THROW_EXCEPTION(InvalidOperationOnSealedBlock());
 
@@ -428,7 +429,7 @@ pair<TransactionReceipts, bool> Block::syncEvidence(BlockChain const& _bc, Trans
 		return ret;
 	}
 
-
+    //LOG(m_logger) << "syncEvidence() 2";
 	assert(_bc.currentHash() == m_currentBlock.parentHash());
 	auto deadline = chrono::steady_clock::now() + chrono::milliseconds(msTimeout);
 
@@ -442,12 +443,14 @@ pair<TransactionReceipts, bool> Block::syncEvidence(BlockChain const& _bc, Trans
 				{
 					if (t.gasPrice() >= _gp.ask(*this))
 					{
+                        //LOG(m_logger) << "syncEvidence() 3, t is " << t.rlp();
 						//						Timer t;
 						executeEvidence(_bc.lastBlockHashes(), t);
 						ret.first.push_back(m_receipts.back());
 						//ret.first.push_back(m_receipts4Evidences.back());
 						++goodTxs;
 						//						cnote << "TX took:" << t.elapsed() * 1000;
+                        //LOG(m_logger) << "syncEvidence() 4";
 					}
 					else if (t.gasPrice() < _gp.ask(*this) * 9 / 10)
 					{
@@ -788,7 +791,7 @@ ExecutionResult Block::executeEvidence(LastBlockHashesFace const& _lh, Transacti
 {
 	if (isSealed())
 		BOOST_THROW_EXCEPTION(InvalidOperationOnSealedBlock());
-
+    //LOG(m_loggerDetailed) << "executeEvidence 1" << _t;
 	// Uncommitting is a non-trivial operation - only do it once we've verified as much of the
 	// transaction as possible.
 	uncommitToSeal();
@@ -796,11 +799,11 @@ ExecutionResult Block::executeEvidence(LastBlockHashesFace const& _lh, Transacti
 
 	//std::pair<ExecutionResult, TransactionReceipt> resultReceipt = m_state.execute(EnvInfo(info(), _lh, gasUsed()), *m_sealEngine, _t, _p, _onOp);
 	Transaction evidence(_t);
-	evidence.updateEvidence(Secret());  ///不论是哪个peer,只要有一个先从服务器下载了evidence,其他的就不行了。
-
+	evidence.updateEvidence();  ///不论是哪个peer,只要有一个先从服务器下载了evidence,其他的就不行了。
+    //LOG(m_loggerDetailed) << "executeEvidence 2";
 	//cnote << "Execute evidence from " << toString(evidence.from()) << ", with sha3() is " << toString(evidence.sha3(WithoutSignature)) ;
 	std::pair<ExecutionResult, TransactionReceipt> resultReceipt = m_state.execute(EnvInfo(info(), _lh, gasUsed()), *m_sealEngine, evidence, _p, _onOp);
-
+    //LOG(m_loggerDetailed) << "executeEvidence 3";
 	if (_p == Permanence::Committed)
 	{
 		// Add to the user-originated transactions that we've executed.
@@ -946,6 +949,8 @@ void Block::commitToSeal(BlockChain const& _bc, bytes const& _extraData)
             sha3(m_currentUncles), m_state.rootHash());
 
         m_currentBlock.setParentHash(m_previousBlock.hash());
+       	m_currentBlock.setBlockType(BlockType::TransactionBlock);
+
         m_currentBlock.setExtraData(_extraData);
         if (m_currentBlock.extraData().size() > 32)
         {
@@ -1044,6 +1049,7 @@ void Block::commitToSealEvidence(BlockChain const& _bc, bytes const& _extraData)
 	m_currentBlock.setRoots(hash256(transactionsMap), hash256(receiptsMap), sha3(m_currentUncles), m_state.rootHash());
 
 	m_currentBlock.setParentHash(m_previousBlock.hash());
+    
 	m_currentBlock.setBlockType(BlockType::EvidenceBlock);
 	m_currentBlock.setExtraData(_extraData);
 	if (m_currentBlock.extraData().size() > 32)

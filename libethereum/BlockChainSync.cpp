@@ -234,7 +234,7 @@ bool BlockChainSync::requestDaoForkBlockHeader(std::shared_ptr<EthereumPeer> _pe
 {
     // DAO challenge
     unsigned const daoHardfork = static_cast<unsigned>(host().chain().sealEngine()->chainParams().daoHardforkBlock);
-    if (daoHardfork == 0)
+    if (daoHardfork == 0 || daoHardfork == static_cast<unsigned>(c_infiniteBlockNumer))
         return false;
 
     m_daoChallengedPeers.insert(_peer);
@@ -641,8 +641,10 @@ void BlockChainSync::onPeerBlockBodies(std::shared_ptr<EthereumPeer> _peer, RLP 
 
 void BlockChainSync::collectBlocks()
 {
-    if (!m_haveCommonHeader || m_headers.empty() || m_bodies.empty())
+    if (!m_haveCommonHeader || m_headers.empty() || m_bodies.empty()) {
+        completeSync();
         return;
+    }
 
     // merge headers and bodies
     auto& headers = *m_headers.begin();

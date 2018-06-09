@@ -273,6 +273,11 @@ bool EthereumPeer::interpret(unsigned _id, RLP const& _r)
         observer->onPeerTransactions(dynamic_pointer_cast<EthereumPeer>(dynamic_pointer_cast<EthereumPeer>(shared_from_this())), _r);
         break;
     }
+	case EvidencesPacket:
+	{
+		observer->onPeerEvidences(dynamic_pointer_cast<EthereumPeer>(dynamic_pointer_cast<EthereumPeer>(shared_from_this())), _r);
+		break;
+	}    
     case GetBlockHeadersPacket:
     {
         /// Packet layout:

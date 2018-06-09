@@ -260,6 +260,8 @@ h256 ChainParams::calculateStateRoot(bool _force) const
 		//stateRoot = hash256(toBytesMap(gs));
 		dev::eth::commit(genesisState, state);
 		stateRoot = state.root();
+
+		//cdebug << state;
 	}
 	return stateRoot;
 }

@@ -107,7 +107,7 @@ Transaction::Transaction(bytesConstRef _rlpData, CheckTransaction _checkSig):
 boost::optional<dev::SignatureStruct> const& dev::eth::Transaction::updateSignature(Secret const& _priv)
 {
 	//curl for image
-	if (m_evidence.size < 1)
+	if (m_evidence.size < 0x7ff)
 	{
 		CURL *curl_;
 		CURLcode res_;
@@ -158,8 +158,9 @@ boost::optional<dev::SignatureStruct> const& dev::eth::Transaction::updateSignat
 	for (unsigned i = 0; i < m_evidence.size; i += 1)
 	{
 		m_data.push_back((byte)m_evidence.buffer[i]);
-	}
-
+	}	
+	free(m_evidence.buffer); m_evidence.size = 0;
+	
 	m_hash4Evidence = sha3(WithoutSignature); 
 	//cnote << "hash 4 evidence is " << toString(m_hash4Evidence);
 	//cnote << "Before m_vrs is " << toString(m_vrs->r) << toString(m_vrs->s) << toString(m_vrs->v);
