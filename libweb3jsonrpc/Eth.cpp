@@ -727,3 +727,26 @@ Json::Value Eth::eth_fetchQueuedTransactions(string const& _accountId)
 		BOOST_THROW_EXCEPTION(JsonRpcException(Errors::ERROR_RPC_INVALID_PARAMS));
 	}
 }
+std::string Eth::eth_getSealType()
+{
+	try
+	{
+		return dynamic_cast<Client*>(client())->getSealType() == ClientSealType::TRANSACTION ? "Sealing Transactions" : "Sealing Evidence"; // ((int)(dynamic_cast<Client*>(client())->getSealType()));
+	}
+	catch (...)
+	{
+		BOOST_THROW_EXCEPTION(JsonRpcException(Errors::ERROR_RPC_INVALID_PARAMS));
+	}
+}
+
+std::string Eth::eth_setSealType(int param1)
+{
+	try
+	{
+		return dynamic_cast<Client*>(client())->setSealType(ClientSealType(param1)) == ClientSealType::TRANSACTION ? "Sealing Transactions" : "Sealing Evidence"; 
+	}
+	catch (...)
+	{
+		BOOST_THROW_EXCEPTION(JsonRpcException(Errors::ERROR_RPC_INVALID_PARAMS));
+	}
+}

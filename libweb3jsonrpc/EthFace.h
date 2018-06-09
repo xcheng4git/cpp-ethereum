@@ -66,6 +66,8 @@ namespace dev {
                     this->bindAndAddMethod(jsonrpc::Procedure("eth_syncing", jsonrpc::PARAMS_BY_POSITION, jsonrpc::JSON_OBJECT,  NULL), &dev::rpc::EthFace::eth_syncingI);
                     this->bindAndAddMethod(jsonrpc::Procedure("eth_estimateGas", jsonrpc::PARAMS_BY_POSITION, jsonrpc::JSON_STRING, "param1",jsonrpc::JSON_OBJECT, NULL), &dev::rpc::EthFace::eth_estimateGasI);
                     this->bindAndAddMethod(jsonrpc::Procedure("eth_chainId", jsonrpc::PARAMS_BY_POSITION, jsonrpc::JSON_STRING,  NULL), &dev::rpc::EthFace::eth_chainIdI);
+                    this->bindAndAddMethod(jsonrpc::Procedure("eth_getSealType", jsonrpc::PARAMS_BY_POSITION, jsonrpc::JSON_STRING, NULL), &dev::rpc::EthFace::eth_getSealTypeI);
+                    this->bindAndAddMethod(jsonrpc::Procedure("eth_setSealType", jsonrpc::PARAMS_BY_POSITION, jsonrpc::JSON_BOOLEAN, "param1", jsonrpc::JSON_INTEGER, NULL), &dev::rpc::EthFace::eth_setSealTypeI);
                 }
 
                 inline virtual void eth_protocolVersionI(const Json::Value &request, Json::Value &response)
@@ -290,6 +292,16 @@ namespace dev {
                     (void)request;
                     response = this->eth_chainId();
                 }
+				inline virtual void eth_getSealTypeI(const Json::Value &request, Json::Value &response)
+				{
+					(void)request;
+					response = this->eth_getSealType();
+				}   
+				inline virtual void eth_setSealTypeI(const Json::Value &request, Json::Value &response)
+				{
+					(void)request;
+					response = this->eth_setSealType(request[0u].asInt());
+				}                             
                 virtual std::string eth_protocolVersion() = 0;
                 virtual std::string eth_hashrate() = 0;
                 virtual std::string eth_coinbase() = 0;
@@ -342,6 +354,8 @@ namespace dev {
                 virtual Json::Value eth_syncing() = 0;
                 virtual std::string eth_estimateGas(const Json::Value& param1) = 0;
                 virtual std::string eth_chainId() = 0;
+                virtual std::string eth_getSealType() = 0;
+                virtual std::string eth_setSealType(int param1) = 0;
         };
 
     }

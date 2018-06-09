@@ -101,6 +101,7 @@ Json::Value toJson(dev::eth::BlockHeader const& _bi, SealEngineFace* _sealer)
         res["number"] = toJS(_bi.number());
         res["gasUsed"] = toJS(_bi.gasUsed());
         res["gasLimit"] = toJS(_bi.gasLimit());
+        res["blockType"] = toJS(_bi.blockType()==BlockType::TransactionBlock?"TransactionBlock":(_bi.blockType()==BlockType::EvidenceBlock?"EvidenceBlock":"FrozenEvidenceBlock"));
         res["extraData"] = toJS(_bi.extraData());
         res["logsBloom"] = toJS(_bi.logBloom());
         res["timestamp"] = toJS(_bi.timestamp());
@@ -370,6 +371,9 @@ TransactionSkeleton toTransactionSkeleton(Json::Value const& _json)
     else
         ret.creation = true;
 
+	if (!_json["isevidence"].empty())
+		ret.evidence = true;
+        
     if (!_json["value"].empty())
         ret.value = jsToU256(_json["value"].asString());
 
