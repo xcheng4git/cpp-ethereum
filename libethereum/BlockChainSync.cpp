@@ -641,10 +641,15 @@ void BlockChainSync::onPeerBlockBodies(std::shared_ptr<EthereumPeer> _peer, RLP 
 
 void BlockChainSync::collectBlocks()
 {
-    if (!m_haveCommonHeader || m_headers.empty() || m_bodies.empty()) {
-        completeSync();
-        return;
-    }
+	////贸然加了一道判断。
+	if (!m_haveCommonHeader && m_headers.empty() && m_bodies.empty()) {  
+		completeSync();  
+		return;
+	}
+	//
+
+	if (!m_haveCommonHeader || m_headers.empty() || m_bodies.empty())
+		return;
 
     // merge headers and bodies
     auto& headers = *m_headers.begin();
