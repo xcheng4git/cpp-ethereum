@@ -354,7 +354,12 @@ void BlockChainSync::requestBlocks(std::shared_ptr<EthereumPeer> _peer)
                 start = m_headers.begin()->first + m_headers.begin()->second.size();
                 ++next;
             }
-
+			////
+			if (!m_headers.empty() && (next == m_headers.end())) {
+				_peer->requestBlockHeaders(start - 1, 1, 0, false);
+				return;
+			}
+			////
             while (count == 0 && next != m_headers.end())
             {
                 count = std::min(c_maxRequestHeaders, next->first - start);
@@ -641,12 +646,14 @@ void BlockChainSync::onPeerBlockBodies(std::shared_ptr<EthereumPeer> _peer, RLP 
 
 void BlockChainSync::collectBlocks()
 {
+#if 0
 	////贸然加了一道判断。
-	if (!m_haveCommonHeader && m_headers.empty() && m_bodies.empty()) {  
+	if (m_haveCommonHeader && m_headers.empty() && m_bodies.empty()) {  
 		completeSync();  
 		return;
 	}
 	//
+#endif
 
 	if (!m_haveCommonHeader || m_headers.empty() || m_bodies.empty())
 		return;
