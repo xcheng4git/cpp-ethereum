@@ -299,6 +299,12 @@ enum class WithExisting: int
     Kill
 };
 
+enum ClientSealType
+{
+	FREE = 0,
+	TRANSACTION,
+	EVIDENCE
+};
 /// Get the current time in seconds since the epoch in UTC
 int64_t utcTime();
 

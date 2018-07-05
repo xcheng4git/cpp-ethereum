@@ -257,12 +257,24 @@ void Ethash::populateFromParent(BlockHeader& _bi, BlockHeader const& _parent) co
 {
     SealEngineFace::populateFromParent(_bi, _parent);
     _bi.setDifficulty(calculateDifficulty(_bi, _parent));
+
+	u256 c_gasLimit4K100Evidence = u256(fromBigEndian<u256>(fromHex("0xD0B6B8")));   //100k的图像消耗gas * 2
+	u256 gasLimit = childGasLimit(_parent);
+
+	if (c_gasLimit4K100Evidence < gasLimit)
+		_bi.setGasLimit(gasLimit);
+	else
+		_bi.setGasLimit(c_gasLimit4K100Evidence);
+
+#if 0
 	if (_bi.blockType() == BlockType::EvidenceBlock) {
-		//_bi.setGasLimit(chainParams().maxGasLimit);
-		_bi.setGasLimit(u256(fromBigEndian<u256>(fromHex("0x400000000000"))));
+		//_bi.setGasLimit(u256(fromBigEndian<u256>(fromHex("0x400000000000"))));  //计算一下，一副100k的图像消耗多少gas
+		_bi.setGasLimit(u256(fromBigEndian<u256>(fromHex("0xD0B6B8"))));
 	}
 	else
-        _bi.setGasLimit(childGasLimit(_parent));
+		_bi.setGasLimit(gasLimit);
+#endif
+
 }
 
 bool Ethash::quickVerifySeal(BlockHeader const& _blockHeader) const

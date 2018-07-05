@@ -546,7 +546,11 @@ void Client::resyncStateFromChain()
             return;
         
     // RESTART MINING
+    restartMining();
+}
 
+void Client::restartMining()
+{
     bool preChanged = false;
     Block newPreMine(chainParams().accountStartNonce);
     DEV_READ_GUARDED(x_preSeal)
@@ -659,7 +663,7 @@ void Client::startSealing()
 
 void Client::rejigSealing()
 {
-    if ((wouldSeal() || remoteActive()) && !isMajorSyncing())
+    if ((wouldSeal() || remoteActive()) && !isMajorSyncing() && m_working.hasTransactionsToSeal(bc(), m_sealType))
     {
         if (sealEngine()->shouldSeal(this))
         {
@@ -688,10 +692,13 @@ void Client::rejigSealing()
             if (wouldSeal())
             {
                 sealEngine()->onSealGenerated([=](bytes const& header){
-                    if (!this->submitSealed(header))
+                    LOG(m_logger) << "Block sealed #" << BlockHeader(_header, HeaderData).number();
+                    if (this->submitSealed(header))
+                        m_onBlockSealed(_header);
+                    else
                         LOG(m_logger) << "Submitting block failed...";
                 });
-                ctrace << "Generating seal on" << m_sealingInfo.hash(WithoutSeal) << "#" << m_sealingInfo.number();
+                ctrace << "Generating seal on" << m_sealingInfo.hash(WithoutSeal) << " #" << m_sealingInfo.number();
                 sealEngine()->generateSeal(m_sealingInfo);
             }
         }
@@ -751,10 +758,16 @@ void Client::doWork(bool _doWait)
 		{
 			srand(time(0));
 			double r = (rand() % 100) / (double)101.0;
-			if (r >= m_sealTypeThreshold)
+			if (r >= m_sealTypeThreshold) {
 				m_sealType = ClientSealType::TRANSACTION;
-			else
+				if (pending().size() > 0)
+					onTransactionQueueReady();
+			}
+			else {
 				m_sealType = ClientSealType::EVIDENCE;
+				if (pendingEvidences().size() > 0)
+					onTransactionQueueReady();
+			}
 		}
 		cnote << "### client is in sealing state: " << (m_sealType == ClientSealType::TRANSACTION ? "TRANSACTION" : "EVIDENCE") << " ###";
 	}
@@ -934,6 +947,9 @@ pair<h256, Address> Client::submitTransaction(TransactionSkeleton const& _t, Sec
 {
     prepareForTransaction();
 
+    // Default gas value meets the intrinsic gas requirements of both
+    // send value and create contract transactions and is the same default value used by geth and testrpc.
+    const u256 defaultTransactionGas = 90000;
     TransactionSkeleton ts(_t);
     ts.from = toAddress(_secret);
     if (_t.nonce == Invalid256) {
@@ -946,7 +962,7 @@ pair<h256, Address> Client::submitTransaction(TransactionSkeleton const& _t, Sec
     if (ts.gasPrice == Invalid256)
         ts.gasPrice = gasBidPrice();
     if (ts.gas == Invalid256)
-        ts.gas = min<u256>(gasLimitRemaining() / 5, balanceAt(ts.from) / ts.gasPrice);
+        ts.gas = defaultTransactionGas;
 
 	if (ts.evidence) {
 		Transaction t(ts, _secret);
@@ -1010,10 +1026,14 @@ ClientSealType Client::setSealType(ClientSealType _type)
 	if (pending().size() <= 0) {
 		if (_type == ClientSealType::EVIDENCE)
 			m_sealType = ClientSealType::EVIDENCE;
+			if (pendingEvidences().size() > 0)
+				onTransactionQueueReady();            
 	}
 	if (pendingEvidences().size() <= 0) {
 		if (_type == ClientSealType::TRANSACTION)
 			m_sealType = ClientSealType::TRANSACTION;
+			if (pending().size() > 0)
+				onTransactionQueueReady();            
 	}
 
     cnote << "### client is in sealing state: " << (m_sealType == ClientSealType::TRANSACTION ? "TRANSACTION" : "EVIDENCE") << " ###";

@@ -646,7 +646,7 @@ void BlockChainSync::onPeerBlockBodies(std::shared_ptr<EthereumPeer> _peer, RLP 
 
 void BlockChainSync::collectBlocks()
 {
-#if 0
+#if 1
 	////贸然加了一道判断。
 	if (m_haveCommonHeader && m_headers.empty() && m_bodies.empty()) {  
 		completeSync();  

@@ -1151,3 +1151,32 @@ void Block::cleanup()
 
     resetCurrent();
 }
+
+bool Block::hasTransactionsToSeal(BlockChain const& _bc, ClientSealType _sealType)
+{
+	if (_sealType == ClientSealType::TRANSACTION) {
+		unsigned unclesCount = 0;
+		if (m_previousBlock.number() != 0)
+		{
+			// Find great-uncles (or second-cousins or whatever they are) - children of great-grandparents, great-great-grandparents... that were not already uncles in previous generations.
+			clog(StateDetail) << "Checking " << m_previousBlock.hash() << ", parent=" << m_previousBlock.parentHash();
+			h256Hash excluded = _bc.allKinFrom(m_currentBlock.parentHash(), 6);
+			auto p = m_previousBlock.parentHash();
+			for (unsigned gen = 0; gen < 6 && p != _bc.genesisHash() && unclesCount < 2; ++gen, p = _bc.details(p).parent)
+			{
+				auto us = _bc.details(p).children;
+				assert(us.size() >= 1);	// must be at least 1 child of our grandparent - it's our own parent!
+				for (auto const& u : us)
+					if (!excluded.count(u))	// ignore any uncles/mainline blocks that we know about.
+					{
+						++unclesCount;
+						break;
+					}
+			}
+		}
+		if (unclesCount > 0)
+			return true;
+	}
+
+	return m_transactions.size() > 0;
+}

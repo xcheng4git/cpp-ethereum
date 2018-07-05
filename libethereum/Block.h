@@ -248,6 +248,8 @@ public:
     void commitToSeal(BlockChain const& _bc, bytes const& _extraData = {});
 	void commitToSealEvidence(BlockChain const& _bc, bytes const& _extraData = {});
 
+    bool hasTransactionsToSeal(BlockChain const& _bc, ClientSealType _sealType);
+    
     /// Pass in a properly sealed header matching this block.
     /// @returns true iff we were previously committed to sealing, the header is valid and it
     /// corresponds to this block.
