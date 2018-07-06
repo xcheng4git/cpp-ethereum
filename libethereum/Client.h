@@ -60,12 +60,6 @@ enum ClientWorkState
     Deleting,
     Deleted
 };
-		enum ClientSealType
-		{
-			FREE = 0,
-			TRANSACTION,
-			EVIDENCE
-		};
 
 struct ActivityReport
 {
@@ -160,7 +154,7 @@ public:
 			m_preSeal.setAuthor(_us);
 		restartMining();
 	}
-    
+
     /// Type of sealers available for this seal engine.
     strings sealers() const { return sealEngine()->sealers(); }
     /// Current sealer in use.
