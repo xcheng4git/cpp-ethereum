@@ -1159,7 +1159,7 @@ bool Block::hasTransactionsToSeal(BlockChain const& _bc, ClientSealType _sealTyp
 		if (m_previousBlock.number() != 0)
 		{
 			// Find great-uncles (or second-cousins or whatever they are) - children of great-grandparents, great-great-grandparents... that were not already uncles in previous generations.
-			clog(StateDetail) << "Checking " << m_previousBlock.hash() << ", parent=" << m_previousBlock.parentHash();
+			LOG(m_logger) << "Checking " << m_previousBlock.hash() << ", parent=" << m_previousBlock.parentHash();
 			h256Hash excluded = _bc.allKinFrom(m_currentBlock.parentHash(), 6);
 			auto p = m_previousBlock.parentHash();
 			for (unsigned gen = 0; gen < 6 && p != _bc.genesisHash() && unclesCount < 2; ++gen, p = _bc.details(p).parent)

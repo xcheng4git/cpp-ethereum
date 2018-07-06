@@ -304,6 +304,7 @@ private:
     SizedBlockMap<h256> m_unknown;										///< For blocks that have an unknown parent; we map their parent hash to the block stuff, and insert once the block appears.
     h256Hash m_knownBad;												///< Set of blocks that we know will never be valid.
     SizedBlockMap<time_t> m_future;										///< Set of blocks that are not yet valid. Ordered by timestamp
+    h256Hash m_futureSet;                                               ///< Set of all blocks that are not yet valid.
     Signal<> m_onReady;													///< Called when a subsequent call to import blocks will return a non-empty container. Be nice and exit fast.
     Signal<> m_onRoomAvailable;											///< Called when space for new blocks becomes availabe after a drain. Be nice and exit fast.
 

@@ -131,6 +131,7 @@ void Client::init(p2p::Host* _extNet, fs::path const& _dbPath, fs::path const& _
     bc().setOnBlockImport([=](BlockHeader const& _info) {
         if (auto h = m_host.lock())
             h->onBlockImported(_info);
+        m_onBlockImport(_info);
     });
 
     if (_forceAction == WithExisting::Rescue)
@@ -691,9 +692,9 @@ void Client::rejigSealing()
 
             if (wouldSeal())
             {
-                sealEngine()->onSealGenerated([=](bytes const& header){
+                sealEngine()->onSealGenerated([=](bytes const& _header){
                     LOG(m_logger) << "Block sealed #" << BlockHeader(_header, HeaderData).number();
-                    if (this->submitSealed(header))
+                    if (this->submitSealed(_header))
                         m_onBlockSealed(_header);
                     else
                         LOG(m_logger) << "Submitting block failed...";
